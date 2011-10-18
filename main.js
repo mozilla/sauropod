@@ -47,6 +47,13 @@ function verifyBrowserID(assertion, audience, cb)
 }
 
 sauropod.post('/session/start', function(req, res) {
-	
+	res.send("TBD", 501);
 });
 
+sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
+	res.send("TBD", 501);
+});
+
+sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
+	res.send("TBD", 501);
+});
