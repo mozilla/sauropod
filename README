@@ -1,0 +1,5 @@
+To run the Sauropod server:
+
+$ cd srv/
+$ npm install express riak-js node-uuid
+$ node main.js
