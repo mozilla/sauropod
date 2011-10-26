@@ -1,9 +1,7 @@
 
-var riak = require('riak-js');
 var uuid = require('node-uuid');
 var express = require('express');
-
-var db = riak.getClient() // localhost at 8098?
+var storage = require('./storage');
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
 sauropod.use(express.bodyParser());
@@ -49,16 +47,33 @@ function verifyBrowserID(assertion, audience, cb)
     verify.end();
 }
 
+function verifySignature(sig) {
+    // TODO: Signature is simply the token for now
+    // TODO: How does :userid map to user in signature?
+
+    for (var audience in tokens) {
+        for (var email in tokens[audience]) {
+            if (tokens[audience][email] == sig) {
+                return {user: email, bucket: audience};
+            }
+        }
+    }
+
+    return null;
+}
+
 sauropod.post('/session/start', function(req, res) {
     var audience = req.body.audience;
     verifyBrowserID(req.body.assertion, audience, function(id) {
         if ('success' in id) {
             var email = id['success'];
             if (!(audience in tokens)) {
-                token[audience] = {};
+                tokens[audience] = {};
             }
-            tokens[audience][email] = uuid();
-            res.send(tokens[audience][email]);
+
+            var token = uuid();
+            tokens[audience][email] = token;
+            res.send(token);
         } else {
             res.send(id.error, 401);
         }
@@ -66,12 +81,35 @@ sauropod.post('/session/start', function(req, res) {
 });
 
 sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
-    // TODO: Signature is simply the token for now
-    var signature = req.header('Signature');
-    for (var )
-    res.send("TBD", 501);
+    var sig = req.header('Signature');    
+    var verify = verifySignature(sig);
+
+    if (!verify) {
+        res.send("Invalid Signature", 401);
+    } else {
+        storage.put(verify[user], verify[audience], key, req.body, function(err) {
+            if (!err) {
+                res.send("OK", 200);    
+            } else {
+                res.send("Error " + err, 500);   
+            }
+        }); 
+    }
 });
 
 sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
-    res.send("TBD", 501);
+    var sig = req.header('Signature');    
+    var verify = verifySignature(sig);
+
+    if (!verify) {
+        res.send("Invalid Signature", 401);
+    } else {
+        storage.get(verify[user], verify[audience], key, function(err, data) {
+            if (!err) {
+                res.send(data, 200);
+            } else {
+                res.send("Error " + err, 500);
+            }
+        });
+    }
 });
