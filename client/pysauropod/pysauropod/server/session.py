@@ -44,7 +44,7 @@ import time
 import hashlib
 import hmac
 import math
-from base64 import b64encode
+from base64 import urlsafe_b64encode as b64encode
 
 from zope.interface import implements, Interface
 

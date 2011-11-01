@@ -228,7 +228,9 @@ class SauropodAuthenticationPolicy(object):
         # Load the session from the database if needed
         authz = {"appid": appid}
         if sessionid is not None:
-            authz["userid"] = sessiondb.get_session_data(appid, sessionid)
+            userid = sessiondb.get_session_data(appid, sessionid)
+            if userid is not None:
+                authz["userid"] = userid
         request.environ["sauropod.auth_data"] = authz
         return authz
         
