@@ -45,18 +45,28 @@ import hashlib
 import hmac
 import math
 from base64 import urlsafe_b64encode as b64encode
+from base64 import urlsafe_b64decode as b64decode
 
 from zope.interface import implements, Interface
+
+from mozsvc import plugin
 
 from pysauropod.server.utils import strings_differ
 
 
 def includeme(config):
-    """Include the default app-session-management definitions."""
-    session = SignedAppSessionDB()
-    def register():
-        config.registry.registerUtility(session, IAppSessionDB)
-    config.action(IAppSessionDB, register)
+    """Include the default app-session-management definitions.
+
+    Call this function on a pyramid configurator to register a utility for
+    the IAppSessionDB interface.  The particular implementation to use will
+    be taken from the configurator settings dict, falling back to a simple
+    in-memory implementation as the default.
+    """
+    settings = config.get_settings()
+    if "sauropod.sessiondb.backend" not in settings:
+        default_backend = "pysauropod.server.session.SignedAppSessionDB"
+        settings["sauropod.sessiondb.backend"] = default_backend
+    plugin.load_and_register("sauropod.sessiondb", config)
 
 
 class IAppSessionDB(Interface):
@@ -100,11 +110,11 @@ class SignedAppSessionDB(object):
             timeout = 5 * 60
         self.secret = secret
         self.timeout = timeout
-        # Since we need to use HMAC for both key-generation and key-signing,
+        # Since we need to use HMAC for both key-generation and signing,
         # generate separate keys for the two operations.  This will help
         # us avoid accidentally turning into e.g. a signature oracle.
-        self._sig_key = HKDF_extract("SIGN", secret)
-        self._gen_key = HKDF_extract("GENERATE", secret)
+        self._master_key = HKDF_extract("IAPPSESSIONDB", secret)
+        self._sig_key = HKDF_expand(self._master_key, "SIGNING", 16)
 
     def get_app_key(self, appid):
         """Get the secret signing key for the given application ID.
@@ -112,9 +122,9 @@ class SignedAppSessionDB(object):
         In this implementation, the appkey is derived via HKDF-expand from
         the appid and our master key-generation secret.
         """
-        # For testing purposes, justuse "APPKEY" for all apps.
-        return "APPKEY"
-        return HKDF_expand(self._gen_key, appid, 16).encode("hex")
+        return "APPKEY" # for testing purposes...
+        info = "APP-%s" % (appid,)
+        return HKDF_expand(self._master_key, info, 16).encode("hex")
 
     def get_session_key(self, appid, sessionid):
         """Get the secret signing key for the given session ID.
@@ -122,8 +132,8 @@ class SignedAppSessionDB(object):
         In this implementation, the session key is derived via HKDF-expand
         from the sessionid and our master key-generation secret.
         """
-        info = "%s&%s" % (appid, sessionid)
-        return HKDF_expand(self._gen_key, info, 16).encode("hex")
+        info = "SESSION-%s-%s" % (appid, sessionid)
+        return HKDF_expand(self._master_key, info, 16).encode("hex")
 
     def new_session(self, appid, data):
         """Create a new session and associated the given string data.
@@ -142,7 +152,7 @@ class SignedAppSessionDB(object):
             timestamp = timestamp[:-1]
         # Append it to the data.
         # TODO: this will make userid visible in plaintext; encrypt it?
-        data = "%s:%s" % (data, timestamp)
+        data = "%s:%s" % (b64encode(data), timestamp)
         # Append the signature.
         sigdata = data + "\x00" + appid
         sig = b64encode(hmac.new(self._sig_key, sigdata).digest())
@@ -171,7 +181,7 @@ class SignedAppSessionDB(object):
         if strings_differ(sig, expected_sig):
             return None
         # Hooray!
-        return data
+        return b64decode(data)
 
 
 def HKDF_extract(salt, IKM):
