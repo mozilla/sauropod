@@ -35,42 +35,30 @@
 # ***** END LICENSE BLOCK *****
 """
 
-Pyramid-based server to support the Sauropod web API.
-
-This package implements a simple pyramid/mozsvc-based WSGI application
-which will expose an ISauropodBackend via a HTTP-based API.
+Error class definitions for the Sauropod data store.
 
 """
 
-from pyramid.config import Configurator
-
-from mozsvc import plugin
-from mozsvc.config import get_configurator
-
-
-def includeme(config):
-    config.include("cornice")
-    config.include("mozsvc")
-    config.include("pysauropod.server.security")
-    config.include("pysauropod.server.session")
-    config.scan("pysauropod.server.views")
-    settings = config.get_settings()
-    if "sauropod.storage.backend" not in settings:
-        default_backend = "pysauropod.backends.sql:SQLBackend"
-        settings["sauropod.storage.backend"] = default_backend
-        settings["sauropod.storage.sqluri"] = "sqlite:////home/rfk/test.db"
-    plugin.load_and_register("sauropod.storage", config)
+class Error(Exception):
+    """Base error type for pysauropod."""
+    pass
 
 
+class AuthenticationError(Error):
+    """Error raised when invalid key or credentials are provided."""
+    pass
 
 
-def main(global_config={}, **settings):
-    config = get_configurator(global_config, **settings)
-    config.include(includeme)
-    return config.make_wsgi_app()
+class PermissionError(Error):
+    """Error raised when accessing data without appropriate permissions."""
+    pass
 
 
-if __name__ == '__main__':
-    from paste.httpserver import serve
-    app = main()
-    serve(app, host='0.0.0.0')
+class SessionExpiredError(Error):
+    """Error raised when attempting to use an expired session."""
+    pass
+
+
+class ConflictError(Error):
+    """Error raised when a write fails due to conflicting versions."""
+    pass

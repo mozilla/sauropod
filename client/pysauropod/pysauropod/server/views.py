@@ -35,20 +35,24 @@
 # ***** END LICENSE BLOCK *****
 """
 
-Views for minimal sauropod server.
+Views for Sauropod Web-API server.
 
 """
+
+from urllib import quote as urlquote
 
 from pyramid.security import effective_principals
 from pyramid.response import Response
 from pyramid.httpexceptions import (HTTPNoContent, HTTPNotFound,
-                                    HTTPForbidden, HTTPUnprocessableEntity)
+                                    HTTPForbidden, HTTPUnprocessableEntity,
+                                    HTTPBadRequest, HTTPPreconditionFailed)
 
 from cornice import Service
 
-from pysauropod.server.storage import IStorageDB
+from pysauropod.errors import *
+from pysauropod.interfaces import ISauropodBackend
 from pysauropod.server.session import IAppSessionDB
-from pysauropod.server.utils import verify_browserid
+
 
 start_session = Service(name="start_session", path="/session/start")
 keys = Service(name="keys", path="/app/{appid}/users/{userid}/keys/")
@@ -77,6 +81,8 @@ def create_session(request):
     #    raise HTTPUnprocessableEntity()
     #if not verify_browserid(assertion, audience):
     #    raise HTTPForbidden()
+    # Currently the credentials are just the userid.
+    # Eventually this should verify against BrowserID.
     userid = request.body
     # Create the session, return the necessary keys.
     sessiondb = request.registry.getUtility(IAppSessionDB)
@@ -84,20 +90,33 @@ def create_session(request):
     sessionkey = sessiondb.get_session_key(appid, sessionid)
     response = "oauth_token=%s&oauth_token_secret=%s"
     response = response % (sessionid, sessionkey)
-    return Response(response, content_type="application/x-www-form-urlencoded")
+    r = Response(response, content_type="application/x-www-form-urlencoded")
+    r.headers["X-Sauropod-UserID"] = userid
+    r.headers["X-Sauropod-AppID"] = appid
+    return r
 
 
-@keys.get(permission="get-key", renderer="json")
+@keys.get(permission="get-key")
 def list_keys(request):
     """List keys for the given user.
 
     You must have a valid session and be authenticated as the target user.
     """
-    appid = request.matchdict["appid"]
-    userid = request.matchdict["userid"]
-    prefix = request.GET.get("prefix", None)
-    store = request.registry.queryUtility(IStorageDB)
-    return list(store.listkeys(appid, userid, prefix))
+    appid = request.matchdict["appid"].encode("utf8")
+    userid = request.matchdict["userid"].encode("utf8")
+    start = request.GET.get("start", None)
+    end = request.GET.get("end", None)
+    limit = request.GET.get("limit", None)
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            raise HTTPBadRequest()
+    store = request.registry.getUtility(ISauropodBackend)
+    keys = store.listkeys(appid, userid, start, end, limit)
+    response = "\n".join(urlquote(key) for key in keys)
+    r = Response(response, content_type="application/newlines")
+    return r
 
 
 @key.get(permission="get-key")
@@ -106,16 +125,19 @@ def get_key(request):
 
     You must have a valid session and be authenticated as the target user.
     """
-    appid = request.matchdict["appid"]
-    userid = request.matchdict["userid"]
-    key = request.matchdict["key"]
-    store = request.registry.queryUtility(IStorageDB)
+    appid = request.matchdict["appid"].encode("utf8")
+    userid = request.matchdict["userid"].encode("utf8")
+    key = request.matchdict["key"].encode("utf8")
+    store = request.registry.getUtility(ISauropodBackend)
     try:
-        value = store.get(appid, userid, key)
+        item = store.getitem(appid, userid, key)
     except KeyError:
         raise HTTPNotFound()
-    else:
-        return Response(value, content_type="application/octet-stream")
+    r = Response(item.value, content_type="application/octet-stream")
+    r.headers["X-Sauropod-UserID"] = userid
+    r.headers["X-Sauropod-AppID"] = appid
+    r.headers["ETag"] = item.etag
+    return r
 
 
 @key.put(permission="set-key")
@@ -124,12 +146,20 @@ def set_key(request):
 
     You must have a valid session and be authenticated as the target user.
     """
-    appid = request.matchdict["appid"]
-    userid = request.matchdict["userid"]
-    key = request.matchdict["key"]
-    store = request.registry.queryUtility(IStorageDB)
-    store.set(appid, userid, key, request.body)
-    return HTTPNoContent()
+    appid = request.matchdict["appid"].encode("utf8")
+    userid = request.matchdict["userid"].encode("utf8")
+    key = request.matchdict["key"].encode("utf8")
+    store = request.registry.getUtility(ISauropodBackend)
+    if_match = _get_if_match(request)
+    try:
+        item = store.set(appid, userid, key, request.body, if_match=if_match)
+    except ConflictError:
+        raise HTTPPreconditionFailed()
+    r = HTTPNoContent()
+    r.headers["X-Sauropod-UserID"] = userid
+    r.headers["X-Sauropod-AppID"] = appid
+    r.headers["ETag"] = item.etag
+    return r
 
 
 @key.delete(permission="del-key")
@@ -138,12 +168,29 @@ def delete_key(request):
 
     You must have a valid session and be authenticated as the target user.
     """
-    appid = request.matchdict["appid"]
-    userid = request.matchdict["userid"]
-    key = request.matchdict["key"]
-    store = request.registry.queryUtility(IStorageDB)
+    appid = request.matchdict["appid"].encode("utf8")
+    userid = request.matchdict["userid"].encode("utf8")
+    key = request.matchdict["key"].encode("utf8")
+    if_match = _get_if_match(request)
+    store = request.registry.getUtility(ISauropodBackend)
     try:
-        store.delete(appid, userid, key)
+        store.delete(appid, userid, key, if_match=if_match)
     except KeyError:
         raise HTTPNotFound()
+    except ConflictError:
+        raise HTTPPreconditionFailed()
     return HTTPNoContent()
+
+
+def _get_if_match(request):
+    """Get the if_match value from a request."""
+    if_match = request.headers.get("If-Match", None)
+    if if_match is None:
+        if_match = request.headers.get("If-None-Match", None)
+        if if_match is not None:
+            if if_match != "*":
+                # I have no way to process if-none-match=some-etag.
+                # Don't do that, OK?
+                raise HTTPBadRequest()
+            if_match = ""
+    return if_match

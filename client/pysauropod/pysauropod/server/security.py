@@ -35,30 +35,34 @@
 # ***** END LICENSE BLOCK *****
 """
 
-Security-related code for the minimal sauropod server.
+Security-related code for the Sauropod webapi server.
 
 """
+
+from __future__ import with_statement
 
 import time
 import threading
 import heapq
 import hmac
 from hashlib import sha1
-from base64 import b64encode
+from base64 import b64encode, b64decode
 
 from zope.interface import implements
 
 from pyramid.security import Everyone, Authenticated
 from pyramid.interfaces import IAuthenticationPolicy, IAuthorizationPolicy
 
+from pysauropod.utils import strings_differ
+from pysauropod.server.utils import parse_authz_header 
 from pysauropod.server.session import IAppSessionDB
-from pysauropod.server.utils import strings_differ, parse_authz_header
-
+                                   
 
 def includeme(config):
     """Include the sauropod security definitions in a pyramid config.
 
-    Including "pysauropod.server.security" will get you the following:
+    Including "pysauropod.backends.webapi.server.security" will get you the
+    following:
 
         * a root_factory that identifies the appid and userid for each request
         * an authorization policy that defines some handy permissions
@@ -200,7 +204,7 @@ class SauropodAuthenticationPolicy(object):
 
         This method checks the OAuth signature in the request.  If invalid
         then None is returned; if valid then a dict giving the appid and
-        possible the userid is returned.
+        possibly the userid is returned.
         """
         # Try to use cached version.
         if "sauropod.auth_data" in request.environ:

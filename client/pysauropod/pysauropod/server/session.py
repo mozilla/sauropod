@@ -51,7 +51,7 @@ from zope.interface import implements, Interface
 
 from mozsvc import plugin
 
-from pysauropod.server.utils import strings_differ
+from pysauropod.utils import strings_differ
 
 
 def includeme(config):

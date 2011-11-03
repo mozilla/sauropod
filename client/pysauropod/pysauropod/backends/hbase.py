@@ -35,54 +35,13 @@
 # ***** END LICENSE BLOCK *****
 """
 
-Storage-related code for the minimal sauropod server.
+HBase backend for the Sauropod data store.
 
 """
 
-from collections import defaultdict
 
-from zope.interface import implements, Interface
-
-
-class IStorageDB(Interface):
-    """Interface for implementing storage in Sauropod."""
-
-    def get(appid, userid, key):
-        """Get a key."""
-
-    def set(appid, userid, key, value):
-        """Set a key."""
-
-    def delete(appid, userid, key):
-        """Delete a key."""
-
-    def listkeys(appid, userid, prefix=None):
-        """List keys."""
-
-
-class MemoryStorageDB(object):
-    """In-memory storage for sauropod server."""
-    implements(IStorageDB)
+class HBaseBackend(object):
+    """HBase-based backend storage for Sauropod."""
 
     def __init__(self):
-        self.keyspaces = defaultdict(dict)
-
-    def get(self, appid, userid, key):
-        return self.keyspaces[(appid, userid)][key]
-
-    def set(self, appid, userid, key, value):
-        self.keyspaces[(appid, userid)][key] = value
-
-    def delete(self, appid, userid, key):
-        del self.keyspaces[(appid, userid)][key]
-
-    def listkeys(self, appid, userid, prefix=None):
-        for key in self.keyspaces[(appid, userid)]:
-            if prefix is None or key.startswith(prefix):
-                yield key
-
-def includeme(config):
-    storage = MemoryStorageDB()
-    def register():
-        config.registry.registerUtility(storage, IStorageDB)
-    config.action(IStorageDB, register)
+        raise NotImplementedError

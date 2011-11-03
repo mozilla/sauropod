@@ -35,92 +35,159 @@
 # ***** END LICENSE BLOCK *****
 """
 
-Python client for the Sauropod data store.
+Sauropod:  a massive impervious data-store
+==========================================
+
+Sauropod is a key-value store.  It is designed for secure, scalable storage of
+multi-tenanted data.  It supports millions of users and thousands of different
+applications all accessing a single instances of the store, without trampling
+on each others data or each others privacy.
 
 """
-
 
 import os
 import cgi
 import time
-import json
-import httplib
 import hmac
 from hashlib import sha1
 from base64 import b64encode
-from urlparse import urlparse
+from urllib2 import HTTPError
+from urlparse import urlparse, urljoin
+from urllib import quote as urlquote
+from urllib import unquote as urlunquote
+
+import requests
+
+from zope.interface import implements
+
+from pysauropod.errors import *
+from pysauropod.interfaces import ISauropodConnection, ISauropodSession, Item
+from pysauropod.backends.sql import SQLBackend
 
 
-class Error(Exception):
-    """Base error type for pysauropod."""
-    pass
+def connect(url, *args, **kwds):
+    """Connect to a Saruopod data store at the given URL.
 
-
-class ServerError(Exception):
-    """Base class for errors raised by the server."""
-    def __init__(self, message, status):
-        self.status = status
-        super(ServerError, self).__init__(message)
-
-
-class Store(object):
-    """Top-level reference to a Sauropod data store.
-
-    This class encapsulates the high-level connection information for a 
-    Sauropod data store.  It must be given the URL of the storage server
-    and the application ID and key to be used to access it.
-
-    All actual storage operations must be done through a "Session" object,
-    which accesses the store as a particular user.  Use the "start_session"
-    method to obtain one.
+    This if a helper function to connect to various Sauropod implementations.
+    Depending on the URL scheme it will load an appropriate backend and 
+    return an object implementing ISauropodConnection.
     """
+    scheme = urlparse(url).scheme.lower()
+    # HTTP urls use the web connector.
+    if scheme in ("http", "https"):
+        return WebAPIConnection(url, *args, **kwds)
+    # Memory URLs use an in-memory sqlite database
+    if scheme == "mem":
+        backend = SQLBackend("sqlite:///")
+        return DirectConnection(backend, *args, **kwds)
+    # Anything else must be a database URL.
+    backend = SQLBackend(url)
+    return DirectConnection(backend, *args, **kwds)
+
+
+class DirectConnection(object):
+    """ISauropodConnection implemented as a direct link to the backend."""
+
+    implements(ISauropodConnection)
+
+    def __init__(self, backend, appid):
+        self.backend = backend
+        self.appid = appid
+
+    def close(self):
+        """Close down the connection."""
+        pass
+
+    def start_session(self, credentials, **kwds):
+        """Start a data access session."""
+        userid = credentials
+        return DirectSession(self, userid, **kwds)
+
+
+class DirectSession(object):
+    """ISauropodSession implementation as a direct link to the backend."""
+
+    def __init__(self, store, userid):
+        self.store = store
+        self.userid = userid
+
+    def close(self):
+        """Close down the session."""
+        pass
+
+    def getitem(self, key, userid=None, appid=None):
+        """Get the item stored under the specified key."""
+        if userid is None:
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        return self.store.backend.getitem(appid, userid, key)
+
+    def get(self, key, userid=None, appid=None):
+        """Get the value stored under the specified key."""
+        return self.getitem(key, userid, appid).value
+
+    def set(self, key, value, userid=None, appid=None, if_match=None):
+        """Set the value stored under the specified key."""
+        if userid is None:
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        return self.store.backend.set(appid, userid, key, value, if_match)
+
+    def delete(self, key, userid=None, appid=None, if_match=None):
+        """Delete the value stored under the specified key."""
+        if userid is None:
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        return self.store.backend.set(appid, userid, key, if_match)
+
+    def listkeys(self, start=None, end=None, limit=None, userid=None,
+                 appid=None):
+        """List the keys available in the bucket."""
+        if userid is None:
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        return self.store.backend.listkeys(appid, userid, start, end, limit)
+
+
+class WebAPIConnection(object):
+    """ISauropodConnection implemented by calling the HTTP-based API."""
+
+    implements(ISauropodConnection)
 
     def __init__(self, store_url, appid, appkey):
         self.store_url = store_url
-        self.store_url_p = urlparse(store_url)
         self.appid = appid
         self.appkey = appkey
 
     def close(self):
-        """Close down the store.
-
-        This method releases any resources held by the store (e.g. persistent
-        connections) and tears down the internal state.  You should not try
-        to use a Store after it has been closed.
-        """
+        """Close down the connection."""
         pass
 
     def start_session(self, credentials, **kwds):
-        """Start a data access session.
-
-        This method starts a data access session as the user specified in the
-        given credentials.  The data available will depend on the data and
-        permissions of that user.
-        """
-        data = self.request("/session/start", "POST", credentials)
-        data = cgi.parse_qs(data)
+        """Start a data access session."""
+        r = self.request("/session/start", "POST", credentials)
+        userid = r.headers["X-Sauropod-UserID"]
+        data = cgi.parse_qs(r.content)
         sessionid = data["oauth_token"][-1]
         sessionkey = data["oauth_token_secret"][-1]
-        return Session(self, sessionid, sessionkey, credentials, **kwds)
+        return WebAPISession(self, userid, sessionid, sessionkey, **kwds)
 
     def request(self, path, method="GET", body="", headers=None, session=None):
         """Make a HTTP request to the Sauropod server, return the result.
 
-        This method is a handy wrapper around httplib that makes signed
-        requests to the Sauropod server.  If the request is successful then
-        the response body is returned; otherwise a ServerError is raised.
+        This method is a handy wrapper around the "requests" module that makes
+        signed requests to the Sauropod server.  If the request is successful
+        then the response body is returned; otherwise a HTTPError is raised.
         """
-        # TODO: this is nice to start, but will get unwieldy when we try
-        #       to add nifty stuff like persistent connections.  Shall we
-        #       just drop in the "requests" module here?
-        if headers is None:
-            headers = []
+        if not headers:
+            headers = {}
         else:
-            if hasattr(headers, "iteritems"):
-                headers = list(headers.iteritems())
-            else:
-                headers = list(headers)
-        headers.append(("Content-Length", len(body)))
+            headers = headers.copy()
+        headers["Content-Length"] = str(len(body))
         # Produce OAuth signature.
         oauth = {}
         oauth["realm"] = "Sauropod"
@@ -137,80 +204,25 @@ class Store(object):
         oauth["oauth_signature"] = b64encode(hmac.new(key, "", sha1).digest())
         oauth = ", ".join("%s=\"%s\"" % item for item in oauth.iteritems())
         oauth = "OAuth " + oauth
-        headers.append(("Authorization", oauth))
+        headers["Authorization"] = oauth
         # Send the request.
-        resp = None
-        con = httplib.HTTPConnection(self.store_url_p.hostname,
-                                     self.store_url_p.port)
-        con.connect()
-        try:
-            con.putrequest(method, self.store_url_p.path + path)
-            for name, value in headers:
-                con.putheader(name, value)
-            con.endheaders()
-            con.send(body)
-            # Get the response, check for errors.
-            resp = con.getresponse()
-            if resp.status < 200 or resp.status >= 300:
-                message = "%d %s" % (resp.status, resp.reason)
-                raise ServerError(message, resp.status)
-            # Read the body, being careful not to read past content-length.
-            content_length = None
-            for name, value in resp.getheaders():
-                if name.lower() == "content-length":
-                    try:
-                        content_length = int(value)
-                    except ValueError:
-                        pass
-            if content_length is None:
-                data = resp.read()
-            else:
-                data = resp.read(content_length)
-            return data
-        finally:
-            if resp is None:
-                resp.close()
-            con.close()
+        url = urljoin(self.store_url, path)
+        resp = requests.request(method, url, None, body, headers)
+        resp.raise_for_status()
+        return resp
 
 
-class Session(object):
-    """Interface to a per-user data access session.
+class WebAPISession(object):
+    """ISauropodSession implemented by calling the HTTP-based API."""
 
-    This class encapsulates access to Sauropod data in the context of a
-    specific user.  It allows you to get, put and delete keys by name,
-    assuming that the user has appropriate permissions.
-
-    Each session has two associated user identifiers:
-
-      * The "active userid" is the user as which the session is authenticated,
-        i.e. the userid whose credentials were provided at creation time.
-
-      * The "default userid" is the user whose keyspace will be accessed when
-        get/put/delete are not given an explicit userid.  Often this will be
-        the same as the active userid, but it need not be.
-
-    To help applications segregate their keys, you may also specify a key
-    prefix which will be appended to all keys prior to talking to the server.
-    """
-
-    def __init__(self, store, sessionid, sessionkey, active_userid,
-                 default_userid=None, prefix=None):
-        if default_userid is None:
-            default_userid = active_userid
+    def __init__(self, store, userid, sessionid, sessionkey):
         self.store = store
+        self.userid = userid
         self.sessionid = sessionid
         self.sessionkey = sessionkey
-        self.active_userid = active_userid
-        self.default_userid = default_userid
-        self.prefix = prefix
 
     def close(self):
-        """Close down the session.
-
-        This method releases any resources held by the session (e.g. persistent
-        connections) and tears down the internal state.  You should not try
-        to use a Session after it has been closed.
-        """
+        """Close down the session."""
         pass
 
     def request(self, path="", method="GET", body="", headers=None):
@@ -221,100 +233,88 @@ class Session(object):
         """
         return self.store.request(path, method, body, headers, self)
 
-    def get(self, key, userid=None):
-        """Get the value stored under the specified key.
-
-        This method takes the name of a key and retreives the string value
-        that is stored there.
-
-        By default the keyspace for the active user is accessed.  Use the
-        optional argument "userid" to access the keys of a different user
-        (assuming, of course, that the active user has permission to view
-        that key for the specified user).
-        """
-        if self.prefix is not None:
-            key = self.prefix + key
+    def getitem(self, key, userid=None, appid=None):
+        """Get the item stored under the specified key."""
         if userid is None:
-            userid = self.default_userid
-        path = "/app/%s/users/%s/keys/%s" % (self.store.appid, userid, key)
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
         try:
-            return self.request(path, "GET")
-        except ServerError, e:
-            if e.status == 404:
+            r = self.request(path, "GET")
+        except HTTPError, e:
+            if e.code == 404:
                 raise KeyError(key)
             raise
+        return Item(appid, userid, key, r.content, r.headers["ETag"])
 
-    def set(self, key, value, userid=None):
-        """Set the value stored under the specified key.
+    def get(self, key, userid=None, appid=None):
+        """Get the value stored under the specified key."""
+        return self.getitem(key, userid, appid).value
 
-        This method takes the name of a key and a string value, and stores the
-        value under the specified key.
-
-        By default the keyspace for the active user is accessed.  Use the
-        optional argument "userid" to access the keys of a different user
-        (assuming, of course, that the active user has permission to set
-        that key for the specified user).
-        """
-        if self.prefix is not None:
-            key = self.prefix + key
+    def set(self, key, value, userid=None, appid=None, if_match=None):
+        """Set the value stored under the specified key."""
         if userid is None:
-            userid = self.default_userid
-        path = "/app/%s/users/%s/keys/%s" % (self.store.appid, userid, key)
-        self.request(path, "PUT", value)
-
-    def delete(self, key, userid=None):
-        """Delete the value stored under the specified key.
-
-        This method takes the name of a key and deletes the value currently
-        stored under that key.
-
-        By default the keyspace for the active user is accessed.  Use the
-        optional argument "userid" to delete the keys of a different user
-        (assuming, of course, that the active user has permission to delete
-        that key for the specified user).
-        """
-        if self.prefix is not None:
-            key = self.prefix + key
-        if userid is None:
-            userid = self.default_userid
-        path = "/app/%s/users/%s/keys/%s" % (self.store.appid, userid, key)
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
+        headers = {}
+        if if_match is not None:
+            if if_match == "":
+                headers["If-None-Match"] = "*"
+            else:
+                headers["If-Match"] = if_match
         try:
-            self.request(path, "DELETE")
-        except ServerError, e:
-            if e.status == 404:
-                raise KeyError(key)
+            self.request(path, "PUT", value, headers)
+        except HTTPError, e:
+            if e.code == 412:
+                raise ConflictError(key)
             raise
 
-    def listkeys(self, prefix=None, userid=None):
-        """List the keys available in the store.
-
-        This method returns an iterator yielding key names available in the
-        store.  By default it will iterate over all keys; pass in the optional
-        argument "prefix" to limit to only keys starting with that prefix.
-
-        By default the keyspace for the active user is accessed.  Use the
-        optional argument "userid" to delete the keys of a different user
-        (assuming, of course, that the active user has permission to view
-        each key for the specified user).
-        """
-        if prefix is None:
-            prefix = ""
-        if self.prefix is not None:
-            prefix = self.prefix + prefix
+    def delete(self, key, userid=None, appid=None, if_match=None):
+        """Delete the value stored under the specified key."""
         if userid is None:
-            userid = self.default_userid
-        path = "/app/%s/users/%s/keys/" % (self.store.appid, userid)
-        path += "?prefix=" + prefix
-        data = self.request(path, "GET")
-        for key in json.loads(data):
-            if self.prefix is not None:
-                key = key[len(self.prefix):]
-            yield key
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
+        headers = {}
+        if if_match is not None:
+            if if_match == "":
+                headers["If-None-Match"] = "*"
+            else:
+                headers["If-Match"] = if_match
+        try:
+            self.request(path, "DELETE", headers=headers)
+        except HTTPError, e:
+            if e.code == 404:
+                raise KeyError(key)
+            if e.code == 412:
+                raise ConflictError(key)
+            raise
 
-
-if __name__ == "__main__":
-    s = Store("http://localhost:8080", "APP", "APPKEY").start_session("rfk")
-    s.set("hello", "world")
-    print "hello", s.get("hello")
-    s.delete("hello")
+    def listkeys(self, start=None, end=None, limit=None, userid=None,
+                 appid=None):
+        """List the keys available in the bucket."""
+        if userid is None:
+            userid = self.userid
+        if appid is None:
+            appid = self.store.appid
+        path = "/app/%s/users/%s/keys/" % (appid, userid)
+        if start is not None or end is not None or limit is not None:
+            args = []
+            if start is not None:
+                args.append(("start", start))
+            if end is not None:
+                args.append(("end", end))
+            if limit is not None:
+                args.append(("limit", limit))
+            args = ("%s=%s" % (arg[0], urlquote(str(arg[1]))) for arg in args)
+            path += "?" + "&".join(args)
+        r = self.request(path, "GET")
+        for key in r.content.split("\n"):
+            key = urlunquote(key.strip())
+            if key:
+                yield key
 
