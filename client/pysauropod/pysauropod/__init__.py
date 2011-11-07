@@ -266,11 +266,12 @@ class WebAPISession(object):
             else:
                 headers["If-Match"] = if_match
         try:
-            self.request(path, "PUT", value, headers)
+            r = self.request(path, "PUT", value, headers)
         except HTTPError, e:
             if e.code == 412:
                 raise ConflictError(key)
             raise
+        return Item(appid, userid, key, value, r.headers["ETag"])
 
     def delete(self, key, userid=None, appid=None, if_match=None):
         """Delete the value stored under the specified key."""

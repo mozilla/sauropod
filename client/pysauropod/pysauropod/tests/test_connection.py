@@ -48,7 +48,9 @@ class SauropodConnectionTests(object):
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "tester")
         self.assertRaises(KeyError, s.get, "hello")
-        s.set("hello", "world")
+        item = s.set("hello", "world")
+        self.assertEquals(item.key, "hello")
+        self.assertEquals(item.value, "world")
         self.assertEquals(s.get("hello"), "world")
         s.delete("hello")
         self.assertRaises(KeyError, s.get, "hello")
