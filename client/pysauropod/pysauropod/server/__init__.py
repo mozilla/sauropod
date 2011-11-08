@@ -58,10 +58,10 @@ def includeme(config):
     if "sauropod.storage.backend" not in settings:
         default_backend = "pysauropod.backends.sql:SQLBackend"
         settings["sauropod.storage.backend"] = default_backend
-        settings["sauropod.storage.sqluri"] = "sqlite:////home/rfk/test.db"
+        #settings["sauropod.storage.sqluri"] = "sqlite:///:memory:"
+        settings["sauropod.storage.sqluri"] = "sqlite:////tmp/sauropod.db"
+        settings["sauropod.storage.create_tables"] = True
     plugin.load_and_register("sauropod.storage", config)
-
-
 
 
 def main(global_config={}, **settings):

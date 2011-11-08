@@ -44,7 +44,7 @@ from hashlib import md5
 
 from zope.interface import implements
 
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 from sqlalchemy import (Integer, String, LargeBinary, Column, Index,
                         ForeignKeyConstraint, Table, MetaData, create_engine)
 
@@ -82,24 +82,30 @@ class SQLBackend(object):
     implements(ISauropodBackend)
 
     def __init__(self, sqluri, pool_size=100, pool_recycle=60,
-                 reset_on_return=True, create_tables=True,
+                 reset_on_return=True, create_tables=False,
                  pool_max_overflow=10, no_pool=False,
                  pool_timeout=30, **kwds):
         self.sqluri = sqluri
         self.driver = urlparse.urlparse(sqluri).scheme
         # Create the engine pased on database type and given parameters.
+        # SQLite :memory: engines are limited to a single shared connection,
+        # while other SQLite engines get only the default pool options.
         if no_pool or self.driver == 'sqlite':
-            self._engine = create_engine(sqluri, poolclass=NullPool,
-                                         logging_name='sqlstore')
+            sqlkw = {}
+            if ":memory:" in sqluri or sqluri == "sqlite://":
+                sqlkw['poolclass'] = QueuePool
+                sqlkw['pool_size'] = 1
+                sqlkw['max_overflow'] = 0
+                sqlkw['connect_args'] = {'check_same_thread': False}
         else:
             sqlkw = {'pool_size': int(pool_size),
                      'pool_recycle': int(pool_recycle),
-                     'logging_name': 'sqlstore',
                      'pool_timeout': int(pool_timeout),
                      'max_overflow': int(pool_max_overflow)}
             if self.driver.startswith("mysql") or self.driver == "pymsql":
                 sqlkw['reset_on_return'] = reset_on_return
-            self._engine = create_engine(sqluri, **sqlkw)
+        sqlkw['logging_name'] = 'sqlstore'
+        self._engine = create_engine(sqluri, **sqlkw)
         # Bind the tables to the engine, creating if necessary.
         for table in tables:
             table.metadata.bind = self._engine
@@ -131,14 +137,16 @@ class SQLBackend(object):
             row = self.execute(get_query, **qargs).fetchone()
         return row[0]
 
-    def getitem(self, appid, userid, key):
+    def getitem(self, appid, userid, key, connection=None):
         """Get the item stored under the specified key."""
+        if connection is None:
+            connection = self
         query = "SELECT i.value, k.bucket FROM items i, buckets k"\
                 " WHERE i.bucket = k.bucket"\
                 " AND k.appid = :appid AND k.userid = :userid"\
                 " AND key = :key"
         qargs = {"appid": appid, "userid": userid, "key": key}
-        row = self.execute(query, **qargs).fetchone()
+        row = connection.execute(query, **qargs).fetchone()
         if row is None:
             raise KeyError(key)
         etag = md5(row[0]).hexdigest()
@@ -161,7 +169,7 @@ class SQLBackend(object):
         trn = connection.begin()
         try:
             try:
-                item = self.getitem(appid, userid, key)
+                item = self.getitem(appid, userid, key, connection)
             except KeyError:
                 if if_match is not None:
                     if if_match != "":
@@ -192,7 +200,7 @@ class SQLBackend(object):
         trn = connection.begin()
         try:
             try:
-                item = self.getitem(appid, userid, key)
+                item = self.getitem(appid, userid, key, connection)
             except KeyError:
                 if if_match is not None:
                     if if_match != "":
