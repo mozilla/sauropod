@@ -185,12 +185,12 @@ class SignedAppSessionDB(object):
 
 
 def HKDF_extract(salt, IKM):
-    """HKDF-Extract; see RFC-2869 for the details."""
+    """HKDF-Extract; see RFC-5869 for the details."""
     return hmac.new(salt, IKM, hashlib.sha1).digest()
 
 
 def HKDF_expand(PRK, info, L):
-    """HKDF-Expand; see RFC-2869 for the details."""
+    """HKDF-Expand; see RFC-5869 for the details."""
     digest_size = hashlib.sha1().digest_size
     N = int(math.ceil(L * 1.0 / digest_size))
     assert N <= 255
