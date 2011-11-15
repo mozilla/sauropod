@@ -1,37 +1,48 @@
 
-var riak = require('riak-js');
-var db = riak.getClient() // localhost at 8098?
+var hbase = require('hbase');
+var crypto = require('crypto');
+var db = hbase({
+    host: '127.0.0.1',
+    port: 8080
+});
 
-// Data store layout:
-// 'user' is an email address, verified by BrowserID, and serves as the primary 'bucket'.
-// We use META to annonate an additional bucket, the audience.
-// Keys and Values are application provided
+db.getVersion(function(err, version) {
+   console.log(version); 
+});
+
+function hashUser(user) {
+    // Use Skein insteaf of SHA-1?
+    var sha = crypto.createHash('sha1');
+    sha.update(user);
+    return sha.digest('hex');
+}
+
+/* Data layout:
+ *  
+ *  One table per "consumer" of sauropod, identified by the domain name
+ *  of the application. This must match the "audience" in the BrowserID
+ *  assertion issued.
+ *
+ *  One row per user. Hashed by hashUser(). We start out with one
+ *  predefined column family "key:" and the actual key requested
+ *  by the application is suffixed as a column qualifier.
+ *
+ * More discussion on:
+ * https://groups.google.com/group/sauropod/browse_thread/thread/f4711de98ddabe3e
+ */
 
 function put(user, audience, key, value, cb) {
-    db.save(
-        encodeURIComponent(user),
-        encodeURIComponent(key),
-        value,
-        {
-            bucket: encodeURIComponent(audience),
-            contentType: "application/json"
-        },
-
-        function(err) {
-            cb(err);
-        }
-    );
+    var row = db.getRow(audience, hashUser(user));
+    row.put("key:" + key, value, function(err, success) {
+        cb(err);
+    });
 }
 
 function get(user, audience, key, cb) {
-    db.get(
-        encodeURIComponent(user),
-        encodeURIComponent(key),
-
-        function(err, data) {
-            cb(err, data);
-        }
-    );
+    var row = db.getRow(audience, hashUser(user));
+    row.get("key:" + key, function(err, success) {
+       cb(err, success); 
+    });
 }
 
 exports.put = put;

@@ -50,7 +50,6 @@ function verifyBrowserID(assertion, audience, cb)
 function verifySignature(sig) {
     // TODO: Signature is simply the token for now
     // TODO: How does :userid map to user in signature?
-
     for (var audience in tokens) {
         for (var email in tokens[audience]) {
             if (tokens[audience][email] == sig) {
@@ -81,7 +80,7 @@ sauropod.post('/session/start', function(req, res) {
 });
 
 sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
-    var sig = req.header('Signature');    
+    var sig = req.header('Signature');
     var verify = verifySignature(sig);
 
     if (!verify) {
