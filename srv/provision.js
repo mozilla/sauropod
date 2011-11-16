@@ -9,8 +9,17 @@ if (args.length != 1) {
 	process.exit(1);
 }
 
+function hash(value) {
+    // Use Skein insteaf of SHA-1?
+    var crypto = require("crypto");
+    var sha = crypto.createHash('sha1');
+    sha.update(value);
+    return sha.digest('hex');
+}
+
 var hbase = require("hbase");
-var newTable = hbase.getTable(client, args[0]);
+var tName = hash(args[0]);
+var newTable = hbase().getTable(tName);
 
 newTable.create(
 	'key', function(err, success) {

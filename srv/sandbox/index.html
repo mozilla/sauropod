@@ -1,0 +1,44 @@
+<!doctype html public "✰">
+<head>
+    <meta charset="utf-8">
+    <title dir="ltr">Sauropod Sandbox</title>
+    <link rel="stylesheet" href="http://fonts.googleapis.com/css?family=Marvel:400,700" type="text/css">
+    
+    <style>
+		body {
+    		margin-left: auto;
+    		margin-right: auto;
+    		text-align: center;
+    		font-family: 'Marvel', sans-serif;
+		}
+
+		#ops {
+			display: none;
+		}
+    </style>
+
+    <script src="https://browserid.org/include.js" type="text/javascript"></script>
+    <script src="sandbox.js" type="text/javascript"></script>
+</head>
+<body>
+	<h1>Sauropod Sandbox</h1>
+	<div id="login">
+        <p id="msg">Please login with BrowserID!</p>
+		<a href="#" onclick="login();"><img id="button" src="https://browserid.org/i/sign_in_green.png"/></a>
+	</div>
+	<div id="ops">
+		<div id="get">
+			<input type="text" id="getKey"/>
+			<input type="button" value="Get" onclick="doGet();"/>
+			<input type="text" id="getValue"/>
+		</div>
+		<div id="put">
+			<input type="text" id="putKey"/>
+			<input type="button" value="Put" onclick="doPut();"/>
+			<input type="text" id="putValue"/>
+		</div>
+	</div>
+	<div id="logbox">
+	</div>
+</body>
+</html>

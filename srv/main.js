@@ -1,4 +1,5 @@
 
+var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
 var storage = require('./storage');
@@ -8,11 +9,15 @@ sauropod.use(express.bodyParser());
 sauropod.use(express.cookieParser());
 sauropod.use(express.session({secret: 'apatosaurus'}));
 
+// For testing only
+sauropod.use(express.static(__dirname + '/'));
+
 var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
 function verifyBrowserID(assertion, audience, cb)
 {
     var cert = 'assertion=' + encodeURIComponent(assertion) + '&audience=' + encodeURIComponent(audience);
+
     var options = {
         host: 'browserid.org',
         path: '/verify',
@@ -80,13 +85,14 @@ sauropod.post('/session/start', function(req, res) {
 });
 
 sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
+    var key = req.params.key;
     var sig = req.header('Signature');
     var verify = verifySignature(sig);
 
     if (!verify) {
         res.send("Invalid Signature", 401);
     } else {
-        storage.put(verify[user], verify[audience], key, req.body, function(err) {
+        storage.put(verify["user"], verify["bucket"], key, req.body.value, function(err) {
             if (!err) {
                 res.send("OK", 200);    
             } else {
@@ -97,18 +103,22 @@ sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
 });
 
 sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
+    var key = req.params.key;
     var sig = req.header('Signature');    
     var verify = verifySignature(sig);
 
     if (!verify) {
         res.send("Invalid Signature", 401);
     } else {
-        storage.get(verify[user], verify[audience], key, function(err, data) {
+        storage.get(verify["user"], verify["bucket"], key, function(err, data) {
             if (!err) {
-                res.send(data, 200);
+                res.send(JSON.stringify(data), 200);
             } else {
                 res.send("Error " + err, 500);
             }
         });
     }
 });
+
+console.log('Serving on http://localhost:8000');
+sauropod.listen(8000);

@@ -10,10 +10,10 @@ db.getVersion(function(err, version) {
    console.log(version); 
 });
 
-function hashUser(user) {
+function hash(value) {
     // Use Skein insteaf of SHA-1?
     var sha = crypto.createHash('sha1');
-    sha.update(user);
+    sha.update(value);
     return sha.digest('hex');
 }
 
@@ -32,16 +32,16 @@ function hashUser(user) {
  */
 
 function put(user, audience, key, value, cb) {
-    var row = db.getRow(audience, hashUser(user));
+    var row = db.getRow(hash(audience), hash(user));
     row.put("key:" + key, value, function(err, success) {
         cb(err);
     });
 }
 
 function get(user, audience, key, cb) {
-    var row = db.getRow(audience, hashUser(user));
+    var row = db.getRow(hash(audience), hash(user));
     row.get("key:" + key, function(err, success) {
-       cb(err, success); 
+        cb(err, success); 
     });
 }
 

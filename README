@@ -1,6 +1,9 @@
 To run the Sauropod server:
 
-$ $HBASE/bin/hbase rest start
+$ HBASE/bin/start-hbase.sh
+$ HBASE/bin/hbase rest start
 $ cd srv/
 $ npm install express hbase node-uuid
+$ node provision.js http://localhost:8000
 $ node main.js
+$ firefox http://localhost:8000/sandbox
