@@ -39,6 +39,7 @@ Error class definitions for the Sauropod data store.
 
 """
 
+
 class Error(Exception):
     """Base error type for pysauropod."""
     pass

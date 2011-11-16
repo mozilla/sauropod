@@ -45,22 +45,15 @@ on each others data or each others privacy.
 
 """
 
-import os
 import cgi
-import time
-import hmac
-from hashlib import sha1
-from base64 import b64encode
 from urllib2 import HTTPError
 from urlparse import urlparse, urljoin
-from urllib import quote as urlquote
-from urllib import unquote as urlunquote
 
 import requests
 
 from zope.interface import implements
 
-from pysauropod.errors import *
+from pysauropod.errors import ConflictError
 from pysauropod.interfaces import ISauropodConnection, ISauropodSession, Item
 from pysauropod.backends.sql import SQLBackend
 
@@ -69,7 +62,7 @@ def connect(url, *args, **kwds):
     """Connect to a Saruopod data store at the given URL.
 
     This if a helper function to connect to various Sauropod implementations.
-    Depending on the URL scheme it will load an appropriate backend and 
+    Depending on the URL scheme it will load an appropriate backend and
     return an object implementing ISauropodConnection.
     """
     scheme = urlparse(url).scheme.lower()
@@ -107,6 +100,8 @@ class DirectConnection(object):
 class DirectSession(object):
     """ISauropodSession implementation as a direct link to the backend."""
 
+    implements(ISauropodSession)
+
     def __init__(self, store, userid):
         self.store = store
         self.userid = userid
@@ -143,25 +138,15 @@ class DirectSession(object):
             appid = self.store.appid
         return self.store.backend.set(appid, userid, key, if_match)
 
-    def listkeys(self, start=None, end=None, limit=None, userid=None,
-                 appid=None):
-        """List the keys available in the bucket."""
-        if userid is None:
-            userid = self.userid
-        if appid is None:
-            appid = self.store.appid
-        return self.store.backend.listkeys(appid, userid, start, end, limit)
-
 
 class WebAPIConnection(object):
     """ISauropodConnection implemented by calling the HTTP-based API."""
 
     implements(ISauropodConnection)
 
-    def __init__(self, store_url, appid, appkey):
+    def __init__(self, store_url, appid):
         self.store_url = store_url
         self.appid = appid
-        self.appkey = appkey
 
     def close(self):
         """Close down the connection."""
@@ -171,10 +156,8 @@ class WebAPIConnection(object):
         """Start a data access session."""
         r = self.request("/session/start", "POST", credentials)
         userid = r.headers["X-Sauropod-UserID"]
-        data = cgi.parse_qs(r.content)
-        sessionid = data["oauth_token"][-1]
-        sessionkey = data["oauth_token_secret"][-1]
-        return WebAPISession(self, userid, sessionid, sessionkey, **kwds)
+        sessionid = r.content
+        return WebAPISession(self, userid, sessionid, **kwds)
 
     def request(self, path, method="GET", body="", headers=None, session=None):
         """Make a HTTP request to the Sauropod server, return the result.
@@ -188,23 +171,8 @@ class WebAPIConnection(object):
         else:
             headers = headers.copy()
         headers["Content-Length"] = str(len(body))
-        # Produce OAuth signature.
-        oauth = {}
-        oauth["realm"] = "Sauropod"
-        oauth["oauth_consumer_key"] = self.appid
-        oauth["oauth_signature_method"] = "HMAC-SHA1"
-        oauth["oauth_timestamp"] = str(int(time.time()))
-        oauth["oauth_nonce"] = os.urandom(6).encode("hex")
         if session is not None:
-            oauth["oauth_token"] = session.sessionid
-        key = self.appkey
-        if session is not None:
-            key += "&" + session.sessionkey
-        # TODO: actually calculate the string to be signed...
-        oauth["oauth_signature"] = b64encode(hmac.new(key, "", sha1).digest())
-        oauth = ", ".join("%s=\"%s\"" % item for item in oauth.iteritems())
-        oauth = "OAuth " + oauth
-        headers["Authorization"] = oauth
+            headers["Signature"] = session.sessionid
         # Send the request.
         url = urljoin(self.store_url, path)
         resp = requests.request(method, url, None, body, headers)
@@ -215,11 +183,12 @@ class WebAPIConnection(object):
 class WebAPISession(object):
     """ISauropodSession implemented by calling the HTTP-based API."""
 
-    def __init__(self, store, userid, sessionid, sessionkey):
+    implements(ISauropodSession)
+
+    def __init__(self, store, userid, sessionid):
         self.store = store
         self.userid = userid
         self.sessionid = sessionid
-        self.sessionkey = sessionkey
 
     def close(self):
         """Close down the session."""
@@ -294,28 +263,3 @@ class WebAPISession(object):
             if e.code == 412:
                 raise ConflictError(key)
             raise
-
-    def listkeys(self, start=None, end=None, limit=None, userid=None,
-                 appid=None):
-        """List the keys available in the bucket."""
-        if userid is None:
-            userid = self.userid
-        if appid is None:
-            appid = self.store.appid
-        path = "/app/%s/users/%s/keys/" % (appid, userid)
-        if start is not None or end is not None or limit is not None:
-            args = []
-            if start is not None:
-                args.append(("start", start))
-            if end is not None:
-                args.append(("end", end))
-            if limit is not None:
-                args.append(("limit", limit))
-            args = ("%s=%s" % (arg[0], urlquote(str(arg[1]))) for arg in args)
-            path += "?" + "&".join(args)
-        r = self.request(path, "GET")
-        for key in r.content.split("\n"):
-            key = urlunquote(key.strip())
-            if key:
-                yield key
-

@@ -63,45 +63,38 @@ def includeme(config):
     in-memory implementation as the default.
     """
     settings = config.get_settings()
-    if "sauropod.sessiondb.backend" not in settings:
-        default_backend = "pysauropod.server.session.SignedAppSessionDB"
-        settings["sauropod.sessiondb.backend"] = default_backend
-    plugin.load_and_register("sauropod.sessiondb", config)
+    if "sauropod.session.backend" not in settings:
+        default_backend = "pysauropod.server.session.SignedSessionManager"
+        settings["sauropod.session.backend"] = default_backend
+    plugin.load_and_register("sauropod.session", config)
 
 
-class IAppSessionDB(Interface):
+class ISessionManager(Interface):
     """Interface for implementing application-session-management."""
 
-    def get_app_key(self, appid):
-        """Get the secret signing key for the given application ID."""
+    def new_session(appid, userid):
+        """Create a new session associated with an appid and userid.
 
-    def get_session_key(self, appid, sessionid):
-        """Get the secret signing key for the given session ID."""
-
-    def new_session(appid, data):
-        """Create a new session and associated the given string data.
-
-        This method creates a new session and associated with it the given
-        data.  The sessionid is returned.
+        This method creates a new session and associates with it the given
+        appid and userid.  The sessionid is returned.
         """
 
-    def get_session_data(appid, sessionid):
-        """Load the string data associated with the given session.
+    def get_session_data(sessionid):
+        """Load the appid and userid for to the given sessionid.
 
-        This method retrieves the data previously associated with the given
-        sessionid and returns it as a string.
+        This method retrieves the appid and userid corresponding to the given
+        sessionid and returns them as a tuple.
         """
 
 
-class SignedAppSessionDB(object):
+class SignedSessionManager(object):
     """Application-session-management based on signed tokens.
 
-    This class implements the IAppSessionDB interface using signed session
-    tokens.  It's not really a "database" since it doesn't actually store
-    the session data anywhere - rather it incorporates it into the token
-    in a way that cannot be forged.
+    This class implements the ISessionManager interface using signed session
+    tokens.  The appid and userid are incorporated directly into the sessionid
+    along with a random token.
     """
-    implements(IAppSessionDB)
+    implements(ISessionManager)
 
     def __init__(self, secret=None, timeout=None):
         if secret is None:
@@ -110,62 +103,42 @@ class SignedAppSessionDB(object):
             timeout = 5 * 60
         self.secret = secret
         self.timeout = timeout
-        # Since we need to use HMAC for both key-generation and signing,
-        # generate separate keys for the two operations.  This will help
-        # us avoid accidentally turning into e.g. a signature oracle.
-        self._master_key = HKDF_extract("IAPPSESSIONDB", secret)
+        # Since the secret might be shared with other classes or other
+        # servers, generate our own unique keys from it using HKDF.
+        # This will help avoid accidentlly becoming e.g. a signature oracle.
+        self._master_key = HKDF_extract("ISessionManager", secret)
         self._sig_key = HKDF_expand(self._master_key, "SIGNING", 16)
 
-    def get_app_key(self, appid):
-        """Get the secret signing key for the given application ID.
-
-        In this implementation, the appkey is derived via HKDF-expand from
-        the appid and our master key-generation secret.
-        """
-        return "APPKEY" # for testing purposes...
-        info = "APP-%s" % (appid,)
-        return HKDF_expand(self._master_key, info, 16).encode("hex")
-
-    def get_session_key(self, appid, sessionid):
-        """Get the secret signing key for the given session ID.
-
-        In this implementation, the session key is derived via HKDF-expand
-        from the sessionid and our master key-generation secret.
-        """
-        info = "SESSION-%s-%s" % (appid, sessionid)
-        return HKDF_expand(self._master_key, info, 16).encode("hex")
-
-    def new_session(self, appid, data):
-        """Create a new session and associated the given string data.
+    def new_session(self, appid, userid):
+        """Create a new session associated with an appid and userid.
 
         In the implementation the session data is actually encoded into the
         sessionid itself, so we don't have to store anything in a database.
         It also encodes timestamp so we can expire old sessions.
         """
-        # The sessionid is data:timestamp:signature.
-        # The signature is a hmac incorporating the appid and our secret key.
-        # This both ties it to the application and prevents forgery.
+        # The sessionid is timestamp:data:signature.
+        # The data is b64encode(random:appid:userid).
+        # The signature is a hmac using our secret signing key.
         timestamp = hex(int(time.time()))
         # Remove hex-formatting guff e.g. "0x31220ead8L" => "31220ead8"
         timestamp = timestamp[2:]
         if timestamp.endswith("L"):
             timestamp = timestamp[:-1]
-        # Append it to the data.
-        # TODO: this will make userid visible in plaintext; encrypt it?
-        data = "%s:%s" % (b64encode(data), timestamp)
+        data = b64encode("%s:%s:%s" % (os.urandom(4), appid, userid))
+        data = "%s:%s" % (timestamp, data)
         # Append the signature.
-        sigdata = data + "\x00" + appid
-        sig = b64encode(hmac.new(self._sig_key, sigdata).digest())
+        sig = b64encode(hmac.new(self._sig_key, data).digest())
         return "%s:%s" % (data, sig)
 
-    def get_session_data(self, appid, sessionid):
-        """Load the data associatd with the given session.
+    def get_session_data(self, sessionid):
+        """Load the appid and userid for the given sessionid.
 
-        In this implementation this involves validating the embedded signature,
-        then just extracting the data from the sessionid itself.
+        In this implementation this involves validating the embedded
+        signature, then just extracting the data from the sessionid itself.
+        If the sessionid is invalid or expired then None is returned.
         """
         try:
-            (data, timestamp, sig) = sessionid.rsplit(":", 2)
+            (timestamp, data, sig) = sessionid.rsplit(":", 2)
         except ValueError:
             return None
         # Check for session expiry.
@@ -176,12 +149,14 @@ class SignedAppSessionDB(object):
         if expiry_time <= time.time():
             return None
         # Check for valid signature.
-        sigdata = "%s:%s\x00%s" % (data, timestamp, appid)
+        sigdata = "%s:%s" % (timestamp, data)
         expected_sig = b64encode(hmac.new(self._sig_key, sigdata).digest())
         if strings_differ(sig, expected_sig):
             return None
         # Hooray!
-        return b64decode(data)
+        _, appid, userid = b64decode(data).split(":", 2)
+        userid = userid.decode("utf8")
+        return appid, userid
 
 
 def HKDF_extract(salt, IKM):
@@ -196,7 +171,7 @@ def HKDF_expand(PRK, info, L):
     assert N <= 255
     T = ""
     output = []
-    for i in xrange(1, N+1):
+    for i in xrange(1, N + 1):
         data = T + info + chr(i)
         T = hmac.new(PRK, data, hashlib.sha1).digest()
         output.append(T)

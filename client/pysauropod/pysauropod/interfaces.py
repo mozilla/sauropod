@@ -137,19 +137,6 @@ class ISauropodSession(Interface):
         (assuming, of course, that you have the appropriate permissions).
         """
 
-    def listkeys(start=None, end=None, limit=None, userid=None, appid=None):
-        """List the keys available in the bucket.
-
-        This method returns an iterator yielding key names available in the
-        bucket, in ascending order.  By default it will iterate over all keys;
-        pass in the optional arguments "start", "end" and "limit" to restrict
-        the listing as required.
-
-        By default this accesses the bucket for the owning userid and appid.
-        Use the optional arguments "userid" and/or "appid" to override this
-        (assuming, of course, that you have the appropriate permissions).
-        """
-
 
 class ISauropodBackend(Interface):
     """Interface to backend storage for Sauropod.
@@ -191,20 +178,11 @@ class ISauropodBackend(Interface):
         stored under that key.
         """
 
-    def listkeys(appid, userid, start=None, end=None, limit=None):
-        """List the keys available in the bucket.
-
-        This method returns an iterator yielding key names available in the
-        bucket, in ascending order.  By default it will iterate over all keys;
-        pass in the optional arguments "start", "end" and "limit" to restrict
-        the listing as required.
-        """
-
 
 class Item(object):
     """Individual item stored in Sauropod.
 
-    Instances of Item represent an individual key/value item stored in 
+    Instances of Item represent an individual key/value item stored in
     Sauropod, along with all its metadata.  Interesting attributes are:
 
         * appid:    the application that this item belongs to

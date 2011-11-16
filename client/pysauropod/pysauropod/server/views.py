@@ -41,17 +41,17 @@ Views for Sauropod Web-API server.
 
 from urllib import quote as urlquote
 
-from pyramid.security import effective_principals
 from pyramid.response import Response
 from pyramid.httpexceptions import (HTTPNoContent, HTTPNotFound,
-                                    HTTPForbidden, HTTPUnprocessableEntity,
-                                    HTTPBadRequest, HTTPPreconditionFailed)
+                                    HTTPForbidden, HTTPBadRequest,
+                                    HTTPPreconditionFailed)
 
 from cornice import Service
 
-from pysauropod.errors import *
+from pysauropod.errors import ConflictError
 from pysauropod.interfaces import ISauropodBackend
-from pysauropod.server.session import IAppSessionDB
+from pysauropod.server.session import ISessionManager
+from pysauropod.server.credentials import ICredentialsManager
 
 
 start_session = Service(name="start_session", path="/session/start")
@@ -59,7 +59,7 @@ keys = Service(name="keys", path="/app/{appid}/users/{userid}/keys/")
 key = Service(name="key", path="/app/{appid}/users/{userid}/keys/{key}")
 
 
-@start_session.post(permission="valid-app")
+@start_session.post()
 def create_session(request):
     """Create a new session.
 
@@ -67,30 +67,17 @@ def create_session(request):
     validated to obtain a userid and a new session will be started tied to
     that userid.
 
-    The response will contain OAuth token details for the new session.
+    The response will contain token details for the new session.
     """
-    for principal in effective_principals(request):
-        if principal.startswith("app:"):
-            appid = principal[4:]
-            break
-    # The request must post a valid BrowserID assertion and audience.
-    # TODO: should I be checking the audience against something internal?
-    #assertion = request.POST.get("assertion")
-    #audience = request.POST.get("audience")
-    #if assertion is None or audience is None:
-    #    raise HTTPUnprocessableEntity()
-    #if not verify_browserid(assertion, audience):
-    #    raise HTTPForbidden()
-    # Currently the credentials are just the userid.
-    # Eventually this should verify against BrowserID.
-    userid = request.body
-    # Create the session, return the necessary keys.
-    sessiondb = request.registry.getUtility(IAppSessionDB)
+    # Check the credentials with the registered manager.
+    credsdb = request.registry.getUtility(ICredentialsManager)
+    appid, userid = credsdb.check_credentials(dict(request.POST))
+    if appid is None or userid is None:
+        raise HTTPForbidden()
+    # Create the session, return the id for future requests.
+    sessiondb = request.registry.getUtility(ISessionManager)
     sessionid = sessiondb.new_session(appid, userid)
-    sessionkey = sessiondb.get_session_key(appid, sessionid)
-    response = "oauth_token=%s&oauth_token_secret=%s"
-    response = response % (sessionid, sessionkey)
-    r = Response(response, content_type="application/x-www-form-urlencoded")
+    r = Response(sessionid, content_type="text/plain")
     r.headers["X-Sauropod-UserID"] = userid
     r.headers["X-Sauropod-AppID"] = appid
     return r

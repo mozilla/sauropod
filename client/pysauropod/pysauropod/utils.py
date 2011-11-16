@@ -40,36 +40,6 @@ Helper functions for Sauropod
 """
 
 
-def verify_browserid(assertion, audience):
-    """Verify the given BrowserID assertion.
-
-    This function verifies the given BrowserID assertion, returning True
-    if it is valid and False otherwise.  It current just POSTs to the
-    browserid.org verifier service.
-
-    WARNING: this does not certificate checking and so is completely open
-             to credential forgery.  I'll fix that eventually...
-    """
-    post_data = "assertion=%s&audience=%s" % (assertion, audience)
-    # Post it to the verifier.
-    try:
-        resp = urllib2.urlopen("https://browserid.org/verify", post_data)
-        content_length = resp.info().get("Content-Length")
-        if content_length is None:
-            data = resp.read()
-        else:
-            data = resp.read(int(content_length))
-        data = json.loads(data)
-    except (ValueError, IOError):
-        return False
-    # Check the JSON response
-    if data.get("status") != "okay":
-        return False
-    if data.get("audience") != audience:
-        return False
-    return True
-
-
 def strings_differ(string1, string2):
     """Check whether two strings differ while avoiding timing attacks.
 

@@ -19,7 +19,7 @@ requires = ["pyramid", "cornice", "mozsvc", "requests"]
 setup(name='pysauropod',
       version='0.1',
       description='Python client library for Project Sauropod',
-      long_description=README + '\n\n' +  CHANGES,
+      long_description=README + '\n\n' + CHANGES,
       classifiers=[
         "Programming Language :: Python",
         ],
@@ -34,4 +34,3 @@ setup(name='pysauropod',
       tests_require=requires,
       test_suite="pysauropod",
       )
-

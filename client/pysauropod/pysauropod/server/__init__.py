@@ -42,8 +42,6 @@ which will expose an ISauropodBackend via a HTTP-based API.
 
 """
 
-from pyramid.config import Configurator
-
 from mozsvc import plugin
 from mozsvc.config import get_configurator
 
@@ -53,6 +51,7 @@ def includeme(config):
     config.include("mozsvc")
     config.include("pysauropod.server.security")
     config.include("pysauropod.server.session")
+    config.include("pysauropod.server.credentials")
     config.scan("pysauropod.server.views")
     settings = config.get_settings()
     if "sauropod.storage.backend" not in settings:

@@ -39,24 +39,13 @@ Security-related code for the Sauropod webapi server.
 
 """
 
-from __future__ import with_statement
-
-import time
-import threading
-import heapq
-import hmac
-from hashlib import sha1
-from base64 import b64encode, b64decode
-
 from zope.interface import implements
 
 from pyramid.security import Everyone, Authenticated
 from pyramid.interfaces import IAuthenticationPolicy, IAuthorizationPolicy
 
-from pysauropod.utils import strings_differ
-from pysauropod.server.utils import parse_authz_header 
-from pysauropod.server.session import IAppSessionDB
-                                   
+from pysauropod.server.session import ISessionManager
+
 
 def includeme(config):
     """Include the sauropod security definitions in a pyramid config.
@@ -70,8 +59,8 @@ def includeme(config):
 
     """
     config.set_root_factory(SauropodContext)
-    config.set_authentication_policy(SauropodAuthenticationPolicy())
     config.set_authorization_policy(SauropodAuthorizationPolicy())
+    config.set_authentication_policy(SauropodAuthenticationPolicy())
 
 
 class SauropodContext(object):
@@ -128,41 +117,29 @@ class SauropodAuthenticationPolicy(object):
     with the session, but it also provides an extra principal to identify
     the requesting application.
 
-    Request signing is done as standard OAuth-v1 signatures, with parameters
-    transmitted in the Authorization header, and with the following mapping
-    from OAuth terminology to Sauropod terminology:
-
-        * oauth_consumer_key:  appid
-        * oauth_token:         sessionid
-
+    Requests are currently authenticated using a simple bearer-token scheme,
+    with each request embedding the sessionid under which it wants to operate.
+    Eventually we'll implement something like 2-legged OAuth signing.
     """
     implements(IAuthenticationPolicy)
-
-    def __init__(self, nonce_timeout=None):
-        if nonce_timeout is None:
-            nonce_timeout = 5 * 60
-        self.nonce_timeout = nonce_timeout
-        self.nonce_cache = NonceCache(nonce_timeout)
 
     def authenticated_userid(self, request):
         """Get the userid associated with this request.
 
-        This method checks the OAuth signature dat and, if it's valid and
-        has a session, returns associated userid.  Note that it's possible
-        for a request to be authenticated but not have a userid (such a
-        a request has yet to establish a session).
+        This method checks the embedded request signature and, if it contains
+        a valid session, returns the associated userid.
         """
-        authz = self._get_auth_data(request)
-        if authz is None:
+        session = self._get_session_data(request)
+        if session is None:
             return None
-        return authz.get("userid", None)
-        
+        return session[1]
+
     def unauthenticated_userid(self, request):
         """Get the userid associated with this request.
 
         For Sauropod this method is exactly equivalent to the authenticated
         version - since loading data from the session means consulting the
-        AppSesssionDB, there's no point in trying to shortcut any validation
+        ISesssionManager, there's no point in trying to shortcut any validation
         of the signature.
         """
         return self.authenticated_userid(request)
@@ -175,12 +152,12 @@ class SauropodAuthenticationPolicy(object):
         has a valid session then it will also include the associated userid.
         """
         principals = [Everyone]
-        authz = self._get_auth_data(request)
-        if authz is not None:
+        session = self._get_session_data(request)
+        if session is not None:
+            appid, userid = session
             principals.append(Authenticated)
-            principals.append("app:" + authz["appid"])
-            if "userid" in authz:
-                principals.append(authz["userid"])
+            principals.append(userid)
+            principals.append("app:" + appid)
         return principals
 
     def remember(self, request, principal):
@@ -198,131 +175,22 @@ class SauropodAuthenticationPolicy(object):
         and include a valid signature on every request.
         """
         return []
- 
-    def _get_auth_data(self, request):
-        """Get the authentication data from the request.
 
-        This method checks the OAuth signature in the request.  If invalid
-        then None is returned; if valid then a dict giving the appid and
-        possibly the userid is returned.
+    def _get_session_data(self, request):
+        """Get the session data from the request.
+
+        This method checks the session identifier included in the request.
+        If invalid then None is returned; if valid then the (appid, userid)
+        tuple is returned.
         """
         # Try to use cached version.
-        if "sauropod.auth_data" in request.environ:
-            return request.environ["sauropod.auth_data"]
-        # Grab the OAuth credentials from the request.
-        params = self._get_authz_params(request)
-        if params is None:
+        if "sauropod.session_data" in request.environ:
+            return request.environ["sauropod.session_data"]
+        # Grab the sessionid from the "signature" heaer.
+        sessionid = request.environ.get("HTTP_SIGNATURE")
+        if sessionid is None:
             return None
-        appid = params["oauth_consumer_key"]
-        sessionid = params.get("oauth_token", None)
-        # Validate the OAuth signature.
-        sigdata = self._calculate_sigdata(request)
-        sessiondb = request.registry.getUtility(IAppSessionDB)
-        sigkey = sessiondb.get_app_key(appid)
-        if sessionid is not None:
-            sigkey += "&" + sessiondb.get_session_key(appid, sessionid)
-        expected_sig = b64encode(hmac.new(sigkey, sigdata, sha1).digest())
-        if strings_differ(params["oauth_signature"], expected_sig):
-            return None
-        # Cache the nonce to avoid re-use.
-        # We do this *after* successul auth to avoid DOS attacks.
-        nonce = params["oauth_nonce"]
-        timestamp = int(params["oauth_timestamp"])
-        self.nonce_cache.add(nonce, timestamp)
-        # Load the session from the database if needed
-        authz = {"appid": appid}
-        if sessionid is not None:
-            userid = sessiondb.get_session_data(appid, sessionid)
-            if userid is not None:
-                authz["userid"] = userid
-        request.environ["sauropod.auth_data"] = authz
-        return authz
-        
-    def _get_authz_params(self, request):
-        """Parse, validate and return the request Authorization header.
-
-        This method grabs the OAuth credentials from the Authorization header
-        and performs some sanity-checks.  If the credentials are missing or
-        malformed then it returns None; if they're ok then they are returned
-        in a dict.
-
-        Note that this method does *not* validate the OAuth signature.
-        """
-        params = parse_authz_header(request, None)
-        if params is None:
-            return None
-        # Check that various parameters are as expected.
-        if params.get("scheme", None) != "OAuth":
-            return None
-        if params.get("realm", None) != "Sauropod":
-            return None
-        if params.get("oauth_signature_method", None) != "HMAC-SHA1":
-            return None
-        if "oauth_consumer_key" not in params:
-            return None
-        # Check the timestamp, reject if too far from current time.
-        try:
-            timestamp = int(params["oauth_timestamp"])
-        except (KeyError, ValueError):
-            return None
-        if abs(timestamp - time.time()) >= self.nonce_timeout:
-            return None
-        # Check that the nonce is not being re-used.
-        nonce = params.get("oauth_nonce", None)
-        if nonce is None:
-            return None
-        if nonce in self.nonce_cache:
-            return None
-        # OK, they seem like sensible OAuth paramters.
-        return params
-
-    def _calculate_sigdata(self, request):
-        """Get the data to be signed for OAuth authentication.
-
-        This method takes a request object and returns the data that should
-        be signed for OAuth authentication of that request.  This data is the
-        "signature base string" as defined in section 3.4.1 of RFC-5849.
-        """
-        # TODO: actually implement this
-        return ""
-
-
-class NonceCache(object):
-    """Object for managing a short-lived cache of nonce values.
-
-    This class allow easy management of client-generated nonces.  It keeps
-    a set of seen nonce values so that they can be looked up quickly, and
-    a queue ordering them by timestamp so that they can be purged when
-    they expire.
-    """
-
-    def __init__(self, timeout=None):
-        if timeout is None:
-            timeout = 5 * 60
-        self.timeout = timeout
-        self.nonces = set()
-        self.purge_lock = threading.Lock()
-        self.purge_queue = []
-
-    def __contains__(self, nonce):
-        """Check if the given nonce is in the cache."""
-        return (nonce in self.nonces)
-
-    def add(self, nonce, timestamp):
-        """Add the given nonce to the cache."""
-        with self.purge_lock:
-            # Purge a few expired nonces to make room.
-            # Don't purge *all* of them, since we don't want to pause too long.
-            purge_deadline = time.time() - self.timeout
-            try:
-                for _ in xrange(5):
-                    (old_timestamp, old_nonce) = self.purge_queue[0]
-                    if old_timestamp >= purge_deadline:
-                        break
-                    self.nonces.remove(old_nonce)
-                    heapq.heappop(self.purge_queue)
-            except (IndexError, KeyError):
-                pass
-            # Add the new nonce into queue and map.
-            heapq.heappush(self.purge_queue, (timestamp, nonce))
-            self.nonces.add(nonce)
+        session_manager = request.registry.getUtility(ISessionManager)
+        session = session_manager.get_session_data(sessionid)
+        request.environ["sauropod.session_data"] = session
+        return session

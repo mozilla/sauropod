@@ -3,26 +3,27 @@ import unittest
 import threading
 import wsgiref.simple_server
 
-from pysauropod.interfaces import *
-from pysauropod.errors import *
-from pysauropod.backends.sql import SQLBackend
+from pyramid import testing
+from pyramid.httpexceptions import HTTPException
+
+from pysauropod.errors import ConflictError
 from pysauropod import server
 from pysauropod import connect
 
 
-_APP = server.main()
 
 class TestingServer(object):
-    """Spin up a local in-memory Sauropod server for testing purposes."""
+    """Spin up a local WSGI server for testing purposes."""
 
-    def __init__(self):
-        # can't seem to call it more than once?
-        # app = main()
-        app = _APP
-        self.base_url = "http://localhost:8080"
-        self.server = wsgiref.simple_server.make_server("localhost", 8080, app)
+    def __init__(self, app):
+        self.app = app
+
+    def start(self):
+        server_args = ("localhost", 8080, self.app)
+        self.server = wsgiref.simple_server.make_server(*server_args)
         self.runthread = threading.Thread(target=self.run)
         self.runthread.start()
+        self.base_url = "http://localhost:8080"
 
     def run(self):
         """Run the server in a background thread."""
@@ -32,7 +33,9 @@ class TestingServer(object):
         """Explicitly shut down the server."""
         self.server.shutdown()
         self.runthread.join()
-        self.server = None
+        del self.server
+        del self.runthread
+        del self.base_url
 
 
 class SauropodConnectionTests(object):
@@ -43,7 +46,8 @@ class SauropodConnectionTests(object):
 
     def _get_session(self, appid, userid):
         store = self._get_store(appid)
-        return store.start_session(userid)
+        credentials = "appid=%s&userid=%s" % (appid, userid)
+        return store.start_session(credentials)
 
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "tester")
@@ -72,7 +76,7 @@ class SauropodConnectionTests(object):
         self.assertRaises(ConflictError,
                           s.set, "hello", "world", if_match="")
         self.assertRaises(ConflictError,
-                          s.set, "hello", "world", if_match=item.etag+"X")
+                          s.set, "hello", "world", if_match=item.etag + "X")
         s.set("hello", "there", if_match=item.etag)
         # Reading it back gives a different etag string.
         item2 = s.getitem("hello")
@@ -86,35 +90,29 @@ class SauropodConnectionTests(object):
         s.delete("hello", if_match=item2.etag)
         self.assertRaises(KeyError, s.get, "hello")
 
-    def test_listkeys(self):
-        s = self._get_session("APPID", "tester")
-        s.set("key-one", "one")
-        s.set("key-two", "two")
-        s.set("key-three", "three")
-        self.assertEquals(sorted(s.listkeys()),
-                          ["key-one", "key-three", "key-two"])
-        self.assertEquals(sorted(s.listkeys(limit=2)),
-                          ["key-one", "key-three"])
-        self.assertEquals(sorted(s.listkeys(start="key-")),
-                          ["key-one", "key-three", "key-two"])
-        self.assertEquals(sorted(s.listkeys(start="key-t")),
-                          ["key-three", "key-two"])
-        self.assertEquals(sorted(s.listkeys(start="key-t", limit=1)),
-                          ["key-three"])
-        self.assertEquals(sorted(s.listkeys(end="key-per")),
-                          ["key-one"])
-        self.assertEquals(sorted(s.listkeys(end="apple")), [])
-        self.assertEquals(sorted(s.listkeys(start="something-else")), [])
-
 
 
 class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
 
     def setUp(self):
-        self.server = TestingServer()
+        self.config = testing.setUp()
+        settings = {
+           "sauropod.credentials.backend":
+               "pysauropod.server.credentials:DummyCredentials"}
+        self.config.add_settings(settings)
+        self.config.include("pysauropod.server")
+        pyramid_app = self.config.make_wsgi_app()
+        def wrapped_app(environ, start_response):
+            try:
+                return pyramid_app(environ, start_response)
+            except HTTPException, e:
+                return e(environ, start_response)
+        self.app = wrapped_app
+        self.server = TestingServer(self.app)
+        self.server.start()
 
     def tearDown(self):
         self.server.shutdown()
 
     def _get_store(self, appid):
-        return connect(self.server.base_url, appid, "APPKEY")
+        return connect(self.server.base_url, appid)

@@ -48,7 +48,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy import (Integer, String, LargeBinary, Column, Index,
                         ForeignKeyConstraint, Table, MetaData, create_engine)
 
-from pysauropod.errors import *
+from pysauropod.errors import ConflictError
 from pysauropod.interfaces import ISauropodBackend, Item
 
 
