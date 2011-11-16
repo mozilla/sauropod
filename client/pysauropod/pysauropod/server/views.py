@@ -39,6 +39,7 @@ Views for Sauropod Web-API server.
 
 """
 
+import json
 from urllib import quote as urlquote
 
 from pyramid.response import Response
@@ -78,8 +79,6 @@ def create_session(request):
     sessiondb = request.registry.getUtility(ISessionManager)
     sessionid = sessiondb.new_session(appid, userid)
     r = Response(sessionid, content_type="text/plain")
-    r.headers["X-Sauropod-UserID"] = userid
-    r.headers["X-Sauropod-AppID"] = appid
     return r
 
 
@@ -120,10 +119,9 @@ def get_key(request):
         item = store.getitem(appid, userid, key)
     except KeyError:
         raise HTTPNotFound()
-    r = Response(item.value, content_type="application/octet-stream")
-    r.headers["X-Sauropod-UserID"] = userid
-    r.headers["X-Sauropod-AppID"] = appid
-    r.headers["ETag"] = item.etag
+    r = Response(_item_to_json(item), content_type="application/json")
+    if item.etag:
+        r.headers["ETag"] = item.etag
     return r
 
 
@@ -143,9 +141,8 @@ def set_key(request):
     except ConflictError:
         raise HTTPPreconditionFailed()
     r = HTTPNoContent()
-    r.headers["X-Sauropod-UserID"] = userid
-    r.headers["X-Sauropod-AppID"] = appid
-    r.headers["ETag"] = item.etag
+    if item.etag:
+        r.headers["ETag"] = item.etag
     return r
 
 
@@ -167,6 +164,17 @@ def delete_key(request):
     except ConflictError:
         raise HTTPPreconditionFailed()
     return HTTPNoContent()
+
+
+def _item_to_json(item):
+    """Render an Item as a json dict."""
+    data = {}
+    data["key"] = item.key
+    data["value"] = item.value
+    data["user"] = item.userid
+    data["bucket"] = item.appid
+    data["timestamp"] = 0
+    return json.dumps(data)
 
 
 def _get_if_match(request):

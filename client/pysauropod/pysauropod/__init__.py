@@ -46,6 +46,7 @@ on each others data or each others privacy.
 """
 
 import cgi
+import json
 from urllib2 import HTTPError
 from urlparse import urlparse, urljoin
 
@@ -91,9 +92,8 @@ class DirectConnection(object):
         """Close down the connection."""
         pass
 
-    def start_session(self, credentials, **kwds):
+    def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
-        userid = credentials["userid"]
         return DirectSession(self, userid, "SESSIONID", **kwds)
 
     def resume_session(self, userid, sessionid, **kwds):
@@ -157,11 +157,10 @@ class WebAPIConnection(object):
         """Close down the connection."""
         pass
 
-    def start_session(self, credentials, **kwds):
+    def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
         body = "&".join("%s=%s" % item for item in credentials.iteritems())
         r = self.request("/session/start", "POST", body)
-        userid = r.headers["X-Sauropod-UserID"]
         sessionid = r.content
         return WebAPISession(self, userid, sessionid, **kwds)
 
@@ -225,7 +224,8 @@ class WebAPISession(object):
             if e.code == 404:
                 raise KeyError(key)
             raise
-        return Item(appid, userid, key, r.content, r.headers["ETag"])
+        value = json.loads(r.content)["value"]
+        return Item(appid, userid, key, value, r.headers.get("ETag"))
 
     def get(self, key, userid=None, appid=None):
         """Get the value stored under the specified key."""
@@ -250,7 +250,7 @@ class WebAPISession(object):
             if e.code == 412:
                 raise ConflictError(key)
             raise
-        return Item(appid, userid, key, value, r.headers["ETag"])
+        return Item(appid, userid, key, value, r.headers.get("ETag"))
 
     def delete(self, key, userid=None, appid=None, if_match=None):
         """Delete the value stored under the specified key."""

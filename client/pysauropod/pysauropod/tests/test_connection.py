@@ -46,8 +46,8 @@ class SauropodConnectionTests(object):
 
     def _get_session(self, appid, userid):
         store = self._get_store(appid)
-        credentials = {"appid": appid, "userid": userid}
-        return store.start_session(credentials)
+        credentials = {"audience": appid, "assertion": userid}
+        return store.start_session(userid, credentials)
 
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "tester")
