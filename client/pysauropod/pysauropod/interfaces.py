@@ -63,9 +63,20 @@ class ISauropodConnection(Interface):
     def start_session(credentials, **kwds):
         """Start a data access session.
 
-        This method starts a data access session as the user specified in the
-        given credentials.  The data available will depend on the data and
-        permissions of that user.
+        This method starts a data access session as the user specified in
+        the given credentials.  The data available will depend on the data
+        and permissions of that user.
+
+        Any additional keyword arguments will be passed on to the created
+        ISauropodSession object.
+        """
+
+    def resume_session(userid, sessionid, **kwds):
+        """Resume a data access session.
+
+        This method resume the data access session identified by the given
+        sessionid.  The data available will depend on the appid and userid
+        associated with that session.
 
         Any additional keyword arguments will be passed on to the created
         ISauropodSession object.

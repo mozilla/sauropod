@@ -93,8 +93,12 @@ class DirectConnection(object):
 
     def start_session(self, credentials, **kwds):
         """Start a data access session."""
-        userid = credentials
-        return DirectSession(self, userid, **kwds)
+        userid = credentials["userid"]
+        return DirectSession(self, userid, "SESSIONID", **kwds)
+
+    def resume_session(self, userid, sessionid, **kwds):
+        """Resume a data access session."""
+        return DirectSession(self, userid, sessionid, **kwds)
 
 
 class DirectSession(object):
@@ -102,9 +106,10 @@ class DirectSession(object):
 
     implements(ISauropodSession)
 
-    def __init__(self, store, userid):
+    def __init__(self, store, userid, sessionid):
         self.store = store
         self.userid = userid
+        self.sessionid = sessionid
 
     def close(self):
         """Close down the session."""
@@ -154,9 +159,14 @@ class WebAPIConnection(object):
 
     def start_session(self, credentials, **kwds):
         """Start a data access session."""
-        r = self.request("/session/start", "POST", credentials)
+        body = "&".join("%s=%s" % item for item in credentials.iteritems())
+        r = self.request("/session/start", "POST", body)
         userid = r.headers["X-Sauropod-UserID"]
         sessionid = r.content
+        return WebAPISession(self, userid, sessionid, **kwds)
+
+    def resume_session(self, userid, sessionid, **kwds):
+        """Resume a data access session."""
         return WebAPISession(self, userid, sessionid, **kwds)
 
     def request(self, path, method="GET", body="", headers=None, session=None):

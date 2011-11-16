@@ -58,7 +58,8 @@ def includeme(config):
     """
     settings = config.get_settings()
     if "sauropod.credentials.backend" not in settings:
-        default_backend = "pysauropod.server.credentials.BrowserIDCredentials"
+#        default_backend = "pysauropod.server.credentials.BrowserIDCredentials"
+        default_backend = "pysauropod.server.credentials.DummyCredentials"
         settings["sauropod.credentials.backend"] = default_backend
     plugin.load_and_register("sauropod.credentials", config)
 
@@ -85,10 +86,10 @@ class DummyCredentials(object):
     implements(ICredentialsManager)
 
     def check_credentials(self, credentials):
-        appid = credentials.get("appid")
+        appid = credentials.get("audience")
         if appid is not None:
             appid = appid.encode("utf8")
-        userid = credentials.get("userid")
+        userid = credentials.get("assertion")
         if userid is not None:
             userid = userid.encode("utf8")
         return (appid, userid)
