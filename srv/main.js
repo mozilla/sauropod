@@ -112,6 +112,8 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
     } else {
         storage.get(verify["user"], verify["bucket"], key, function(err, data) {
             if (!err) {
+                data.user = verify["user"];
+                data.bucket = verify["bucket"];
                 res.send(JSON.stringify(data), 200);
             } else {
                 res.send("Error " + err, 500);

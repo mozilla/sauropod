@@ -102,7 +102,7 @@ function doReq(type, key, val, cb) {
 function doGet() {
 	doReq("GET", document.getElementById("getKey").value, null, function(data) {
 		var val = JSON.parse(data);
-		document.getElementById("getValue").value = val[0]['$'];
+		document.getElementById("getValue").value = val.value;
 	});
 }
 

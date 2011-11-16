@@ -41,7 +41,15 @@ function put(user, audience, key, value, cb) {
 function get(user, audience, key, cb) {
     var row = db.getRow(hash(audience), hash(user));
     row.get("key:" + key, function(err, success) {
-        cb(err, success); 
+        var data = {};
+        if (err) {
+            cb(err, success); 
+        } else {
+            data.key = key;
+            data.value = success[0].$;
+            data.timestamp = success[0].timestamp;
+            cb(err, data); 
+        }
     });
 }
 
