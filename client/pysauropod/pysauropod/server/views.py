@@ -135,9 +135,12 @@ def set_key(request):
     userid = request.matchdict["userid"].encode("utf8")
     key = request.matchdict["key"].encode("utf8")
     store = request.registry.getUtility(ISauropodBackend)
+    value = request.POST.get("value")
+    if value is None:
+        raise HTTPBadRequest("mising value")
     if_match = _get_if_match(request)
     try:
-        item = store.set(appid, userid, key, request.body, if_match=if_match)
+        item = store.set(appid, userid, key, value, if_match=if_match)
     except ConflictError:
         raise HTTPPreconditionFailed()
     r = HTTPNoContent()

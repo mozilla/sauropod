@@ -47,7 +47,8 @@ on each others data or each others privacy.
 
 import cgi
 import json
-from urllib2 import HTTPError
+from urllib import quote as urlquote
+from urllib import unquote as urlunquote
 from urlparse import urlparse, urljoin
 
 import requests
@@ -57,6 +58,22 @@ from zope.interface import implements
 from pysauropod.errors import ConflictError
 from pysauropod.interfaces import ISauropodConnection, ISauropodSession, Item
 from pysauropod.backends.sql import SQLBackend
+
+# The requests module has a bug that makes it unable to access urls
+# containing a quoted slash. Monkey-patch until fix is released.
+if requests.__build__ <= 0x000801:
+    import requests.models
+    import urllib
+    class monkey_patched_urllib(object):
+        def __getattr__(self, name):
+            return getattr(urllib, name)
+        def quote(self, s):
+            # Don't re-quote slashes if they're already quoted.
+            return "%2F".join(urlquote(part) for part in s.split("%2F"))
+        def unquote(self, s):
+            # Don't unquote slashes if they're already quoted.
+            return "%2F".join(urlunquote(part) for part in s.split("%2F"))
+    requests.models.urllib = monkey_patched_urllib()
 
 
 def connect(url, *args, **kwds):
@@ -159,8 +176,7 @@ class WebAPIConnection(object):
 
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
-        body = "&".join("%s=%s" % item for item in credentials.iteritems())
-        r = self.request("/session/start", "POST", body)
+        r = self.request("/session/start", "POST", credentials)
         sessionid = r.content
         return WebAPISession(self, userid, sessionid, **kwds)
 
@@ -168,25 +184,21 @@ class WebAPIConnection(object):
         """Resume a data access session."""
         return WebAPISession(self, userid, sessionid, **kwds)
 
-    def request(self, path, method="GET", body="", headers=None, session=None):
+    def request(self, path, method="GET", data="", headers=None, session=None):
         """Make a HTTP request to the Sauropod server, return the result.
 
         This method is a handy wrapper around the "requests" module that makes
-        signed requests to the Sauropod server.  If the request is successful
-        then the response body is returned; otherwise a HTTPError is raised.
+        signed requests to the Sauropod server.  It returns a response object.
         """
         if not headers:
             headers = {}
         else:
             headers = headers.copy()
-        headers["Content-Length"] = str(len(body))
         if session is not None:
             headers["Signature"] = session.sessionid
         # Send the request.
         url = urljoin(self.store_url, path)
-        resp = requests.request(method, url, None, body, headers)
-        resp.raise_for_status()
-        return resp
+        return requests.request(method, url, None, data, headers)
 
 
 class WebAPISession(object):
@@ -203,27 +215,32 @@ class WebAPISession(object):
         """Close down the session."""
         pass
 
-    def request(self, path="", method="GET", body="", headers=None):
+    def request(self, path="", method="GET", data="", headers=None):
         """Make a HTTP request to the Sauropod server, return the result.
 
         This method is a handy wrapper around the Store.request method, to
         make sure that it uses the correct session for OAuth signing.
         """
-        return self.store.request(path, method, body, headers, self)
+        return self.store.request(path, method, data, headers, self)
 
-    def getitem(self, key, userid=None, appid=None):
-        """Get the item stored under the specified key."""
+    def keypath(self, key, userid=None, appid=None):
+        """Get the server path at which to access the given key."""
         if userid is None:
             userid = self.userid
         if appid is None:
             appid = self.store.appid
-        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
-        try:
-            r = self.request(path, "GET")
-        except HTTPError, e:
-            if e.code == 404:
-                raise KeyError(key)
-            raise
+        path = "/app/%s/users/%s/keys/%s"
+        path = path % tuple(urlquote(v, safe="") for v in (appid, userid, key))
+        return path
+
+    def getitem(self, key, userid=None, appid=None):
+        """Get the item stored under the specified key."""
+        path = self.keypath(key, userid, appid)
+        r = self.request(path, "GET")
+        if r.status_code == 404:
+            raise KeyError(key)
+        else:
+            r.raise_for_status()
         value = json.loads(r.content)["value"]
         return Item(appid, userid, key, value, r.headers.get("ETag"))
 
@@ -233,43 +250,33 @@ class WebAPISession(object):
 
     def set(self, key, value, userid=None, appid=None, if_match=None):
         """Set the value stored under the specified key."""
-        if userid is None:
-            userid = self.userid
-        if appid is None:
-            appid = self.store.appid
-        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
+        path = self.keypath(key, userid, appid)
         headers = {}
         if if_match is not None:
             if if_match == "":
                 headers["If-None-Match"] = "*"
             else:
                 headers["If-Match"] = if_match
-        try:
-            r = self.request(path, "PUT", value, headers)
-        except HTTPError, e:
-            if e.code == 412:
-                raise ConflictError(key)
-            raise
+        r = self.request(path, "PUT", dict(value=value), headers)
+        if r.status_code == 412:
+            raise ConflictError(key)
+        else:
+            r.raise_for_status()
         return Item(appid, userid, key, value, r.headers.get("ETag"))
 
     def delete(self, key, userid=None, appid=None, if_match=None):
         """Delete the value stored under the specified key."""
-        if userid is None:
-            userid = self.userid
-        if appid is None:
-            appid = self.store.appid
-        path = "/app/%s/users/%s/keys/%s" % (appid, userid, key)
+        path = self.keypath(key, userid, appid)
         headers = {}
         if if_match is not None:
             if if_match == "":
                 headers["If-None-Match"] = "*"
             else:
                 headers["If-Match"] = if_match
-        try:
-            self.request(path, "DELETE", headers=headers)
-        except HTTPError, e:
-            if e.code == 404:
-                raise KeyError(key)
-            if e.code == 412:
-                raise ConflictError(key)
-            raise
+        r = self.request(path, "DELETE", headers=headers)
+        if r.status_code == 404:
+            raise KeyError(key)
+        elif r.status_code == 412:
+            raise ConflictError(key)
+        else:
+            r.raise_for_status()
