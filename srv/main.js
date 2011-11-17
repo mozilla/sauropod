@@ -36,13 +36,19 @@ function verifyBrowserID(assertion, audience, cb)
         response.on('data', function(chunk) {
             allData += chunk;
         });
-        response.on('end', function () {
-            var data = JSON.parse(allData);
-            if (data.status != 'okay') {
+        response.on('end', function() {
+            try {
+                var data = JSON.parse(allData);
+                if (data.status != 'okay') {
+                    cb({'error': 'Invalid user'});
+                } else {
+                    cb({'success': data.email});
+                }    
+            } catch (e) {
+                console.log('Exception ' + e);
                 cb({'error': 'Invalid user'});
-            } else {
-                cb({'success': data.email});
             }
+            
         });
     });
 
