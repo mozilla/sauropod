@@ -2,7 +2,7 @@
 // Globals ftw?
 var user = false;
 var token = false;
-var audience = "http://localhost:8000";
+var audience = "http://localhost:8001";
 
 function extractUser(assertion) {
 	function base64urldecode(arg) {
@@ -32,7 +32,7 @@ function login() {
 			document.getElementById("login").style.display = "none";
 			setupSandbox(assertion);
 		} else {
-			document.getElementById("msg").innerHTML = 
+			document.getElementById("msg").innerHTML =
 				"There was an error, please try logging in again: ";
 		}
 	})
@@ -87,7 +87,7 @@ function doReq(type, key, val, cb) {
 			} else {
 				log("There was an error: " + req.responseText);
 			}
-		}	
+		}
 	};
 	req.setRequestHeader("Signature", token);
 	req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -108,6 +108,6 @@ function doGet() {
 
 function doPut() {
 	doReq("PUT", document.getElementById("putKey").value, document.getElementById("putValue").value, function() {
-		
+
 	});
 }

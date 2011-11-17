@@ -29,7 +29,7 @@ function verifyBrowserID(assertion, audience, cb)
             'content-length': '' + cert.length
         }
     };
-    
+
     var verify = https.request(options, function(response) {
         var allData = '';
         response.setEncoding('utf8');
@@ -43,12 +43,12 @@ function verifyBrowserID(assertion, audience, cb)
                     cb({'error': 'Invalid user'});
                 } else {
                     cb({'success': data.email});
-                }    
+                }
             } catch (e) {
                 console.log('Exception ' + e);
                 cb({'error': 'Invalid user'});
             }
-            
+
         });
     });
 
@@ -102,17 +102,17 @@ sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
     } else {
         storage.put(verify["user"], verify["bucket"], key, req.body.value, function(err) {
             if (!err) {
-                res.send("OK", 200);    
+                res.send("OK", 200);
             } else {
-                res.send("Error " + err, 500);   
+                res.send("Error " + err, 500);
             }
-        }); 
+        });
     }
 });
 
 sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
     var key = req.params.key;
-    var sig = req.header('Signature');    
+    var sig = req.header('Signature');
     var verify = verifySignature(sig);
 
     if (!verify) {
@@ -124,11 +124,18 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
                 data.bucket = verify["bucket"];
                 res.send(JSON.stringify(data), 200);
             } else {
-                res.send("Error " + err, 500);
+                if (404 == err.code ) {
+                    res.send('Not found', 404);
+                }
+                else {
+                    res.send("Error " + err, 500);
+		    // Log it
+		    console.log('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
+		}
             }
         });
     }
 });
 
 console.log('Serving on http://localhost:8000');
-sauropod.listen(8000);
+sauropod.listen(8001);

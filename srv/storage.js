@@ -7,7 +7,7 @@ var db = hbase({
 });
 
 db.getVersion(function(err, version) {
-   console.log(version); 
+   console.log(version);
 });
 
 function hash(value) {
@@ -18,7 +18,7 @@ function hash(value) {
 }
 
 /* Data layout:
- *  
+ *
  *  One table per "consumer" of sauropod, identified by the domain name
  *  of the application. This must match the "audience" in the BrowserID
  *  assertion issued.
@@ -43,12 +43,12 @@ function get(user, audience, key, cb) {
     row.get("key:" + key, function(err, success) {
         var data = {};
         if (err) {
-            cb(err, success); 
+            cb(err, success);
         } else {
             data.key = key;
             data.value = success[0].$;
             data.timestamp = success[0].timestamp;
-            cb(err, data); 
+            cb(err, data);
         }
     });
 }
