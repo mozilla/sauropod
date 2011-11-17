@@ -16,6 +16,8 @@ var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
 function verifyBrowserID(assertion, audience, cb)
 {
+    // Uncomment this to stub out verification for testing purposes
+    //return cb({success: audience});
     var cert = 'assertion=' + encodeURIComponent(assertion) + '&audience=' + encodeURIComponent(audience);
 
     var options = {
