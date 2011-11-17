@@ -8,6 +8,10 @@ multi-tenanted data.  It supports millions of users and thousands of different
 applications all accessing a single instance of the store, without trampling
 on each other's data or each other's privacy.
 
+This library provides a Python client for connecting to Sauropod via its
+HTTP interface.  It also provides a simple Sauropod server implementation
+written in Python, which may be useful for testing purposes.
+
 
 Basic Concepts
 ==============

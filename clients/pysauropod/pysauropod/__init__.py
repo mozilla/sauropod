@@ -45,7 +45,14 @@ on each others data or each others privacy.
 
 """
 
-import cgi
+__ver_major__ = 0
+__ver_minor__ = 1
+__ver_patch__ = 0
+__ver_sub__ = ""
+__ver_tuple__ = (__ver_major__, __ver_minor__, __ver_patch__, __ver_sub__)
+__version__ = "%d.%d.%d%s" % __ver_tuple__
+
+
 import json
 from urllib import quote as urlquote
 from urllib import unquote as urlunquote
@@ -64,15 +71,20 @@ from pysauropod.backends.sql import SQLBackend
 if requests.__build__ <= 0x000801:
     import requests.models
     import urllib
+
     class monkey_patched_urllib(object):
+
         def __getattr__(self, name):
             return getattr(urllib, name)
+
         def quote(self, s):
             # Don't re-quote slashes if they're already quoted.
             return "%2F".join(urlquote(part) for part in s.split("%2F"))
+
         def unquote(self, s):
             # Don't unquote slashes if they're already quoted.
             return "%2F".join(urlunquote(part) for part in s.split("%2F"))
+
     requests.models.urllib = monkey_patched_urllib()
 
 

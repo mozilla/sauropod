@@ -71,7 +71,7 @@ items = Table("items", metadata,
     Column("bucket", Integer, primary_key=True, nullable=False),
     Column("key", String(256), primary_key=True, nullable=False),
     Column("value", LargeBinary, nullable=False),
-    ForeignKeyConstraint(["bucket"], ["buckets.bucket"], ondelete="CASCADE")
+    ForeignKeyConstraint(["bucket"], ["buckets.bucket"], ondelete="CASCADE"),
 )
 tables.append(items)
 
