@@ -1,4 +1,5 @@
 
+import os
 import unittest
 import threading
 import wsgiref.simple_server
@@ -113,6 +114,26 @@ class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
 
     def tearDown(self):
         self.server.shutdown()
+        try:
+            os.unlink("/tmp/sauropod.db")
+        except EnvironmentError:
+            pass
 
     def _get_store(self, appid):
         return connect(self.server.base_url, appid)
+
+
+
+class TestSauropodDirectAPI(unittest.TestCase, SauropodConnectionTests):
+
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        try:
+            os.unlink("/tmp/sauropod.db")
+        except EnvironmentError:
+            pass
+
+    def _get_store(self, appid):
+        return connect("sqlite:////tmp/sauropod.db", appid, create_tables=True)

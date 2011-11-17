@@ -92,7 +92,7 @@ def connect(url, *args, **kwds):
         backend = SQLBackend("sqlite:///")
         return DirectConnection(backend, *args, **kwds)
     # Anything else must be a database URL.
-    backend = SQLBackend(url)
+    backend = SQLBackend(url, create_tables=kwds.pop("create_tables", False))
     return DirectConnection(backend, *args, **kwds)
 
 
@@ -158,7 +158,7 @@ class DirectSession(object):
             userid = self.userid
         if appid is None:
             appid = self.store.appid
-        return self.store.backend.set(appid, userid, key, if_match)
+        return self.store.backend.delete(appid, userid, key, if_match)
 
 
 class WebAPIConnection(object):
