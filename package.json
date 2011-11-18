@@ -1,0 +1,41 @@
+{
+    "name": "sauropod",
+    "version": "0.0.1",
+    "description": "The Mozilla User Data project code",
+    "keywords": [
+        "mozilla",
+        "sauropod",
+        "user data"
+    ],
+    "maintainers": [
+        {
+            "name": "Liz Zard",
+            "email": "sauropod-dev@mozilla.com",
+            "web": "https://wiki.mozilla.org/Sauropod",
+        },
+     ],
+     "bugs": {
+        "url": "https://github.com/mozilla/sauropod/issues/"
+     },
+     "licenses": {
+        "type": "Mozilla Public License",
+        "url": "http://www.mozilla.org/MPL/MPL-1.1.txt",
+     },
+     "repositories": [
+        "type": "git",
+        "url": "git://github.com/mozilla/sauropod.git"
+     ],
+     "main": "",
+     "directories": {
+     },
+     "dependencies": {
+        "express": "*",
+        "uuid": "*",
+        "hbase": "*",
+     },
+     "devDependencies": {
+     },
+     "engines": {
+        "node": ">=0.4.12"
+     }
+}

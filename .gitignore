@@ -18,3 +18,4 @@ nosetests.xml
 man
 .channel
 srv/node_modules
+htmlcov

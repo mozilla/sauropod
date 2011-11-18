@@ -1,6 +1,4 @@
 
-from __future__ import with_statement
-
 import os
 
 from setuptools import setup, find_packages
@@ -17,7 +15,7 @@ requires = ["pyramid", "cornice", "mozsvc", "requests"]
 
 
 setup(name='pysauropod',
-      version='0.1',
+      version='0.1.0',
       description='Python client library for Project Sauropod',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[

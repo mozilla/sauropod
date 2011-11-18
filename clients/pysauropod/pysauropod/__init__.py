@@ -45,8 +45,16 @@ on each others data or each others privacy.
 
 """
 
-import cgi
+__ver_major__ = 0
+__ver_minor__ = 1
+__ver_patch__ = 0
+__ver_sub__ = ""
+__ver_tuple__ = (__ver_major__, __ver_minor__, __ver_patch__, __ver_sub__)
+__version__ = "%d.%d.%d%s" % __ver_tuple__
+
+
 import json
+import uuid
 from urllib import quote as urlquote
 from urllib import unquote as urlunquote
 from urlparse import urlparse, urljoin
@@ -55,7 +63,9 @@ import requests
 
 from zope.interface import implements
 
-from pysauropod.errors import ConflictError
+from mozsvc.util import maybe_resolve_name
+
+from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod.interfaces import ISauropodConnection, ISauropodSession, Item
 from pysauropod.backends.sql import SQLBackend
 
@@ -64,15 +74,20 @@ from pysauropod.backends.sql import SQLBackend
 if requests.__build__ <= 0x000801:
     import requests.models
     import urllib
+
     class monkey_patched_urllib(object):
+
         def __getattr__(self, name):
             return getattr(urllib, name)
+
         def quote(self, s):
             # Don't re-quote slashes if they're already quoted.
             return "%2F".join(urlquote(part) for part in s.split("%2F"))
+
         def unquote(self, s):
             # Don't unquote slashes if they're already quoted.
             return "%2F".join(urlunquote(part) for part in s.split("%2F"))
+
     requests.models.urllib = monkey_patched_urllib()
 
 
@@ -92,7 +107,7 @@ def connect(url, *args, **kwds):
         backend = SQLBackend("sqlite:///")
         return DirectConnection(backend, *args, **kwds)
     # Anything else must be a database URL.
-    backend = SQLBackend(url)
+    backend = SQLBackend(url, create_tables=kwds.pop("create_tables", False))
     return DirectConnection(backend, *args, **kwds)
 
 
@@ -101,7 +116,10 @@ class DirectConnection(object):
 
     implements(ISauropodConnection)
 
-    def __init__(self, backend, appid):
+    def __init__(self, backend, appid, verify_browserid=None):
+        if verify_browserid is None:
+            verify_browserid = "pysauropod.utils:verify_browserid"
+        self._verify_browserid = maybe_resolve_name(verify_browserid)
         self.backend = backend
         self.appid = appid
 
@@ -111,7 +129,10 @@ class DirectConnection(object):
 
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
-        return DirectSession(self, userid, "SESSIONID", **kwds)
+        email, data = self._verify_browserid(**credentials)
+        if not email:
+            raise AuthenticationError("invalid credentials")
+        return DirectSession(self, userid, uuid.uuid4().hex, **kwds)
 
     def resume_session(self, userid, sessionid, **kwds):
         """Resume a data access session."""
@@ -158,7 +179,7 @@ class DirectSession(object):
             userid = self.userid
         if appid is None:
             appid = self.store.appid
-        return self.store.backend.set(appid, userid, key, if_match)
+        return self.store.backend.delete(appid, userid, key, if_match)
 
 
 class WebAPIConnection(object):
@@ -177,6 +198,7 @@ class WebAPIConnection(object):
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
         r = self.request("/session/start", "POST", credentials)
+        r.raise_for_status()
         sessionid = r.content
         return WebAPISession(self, userid, sessionid, **kwds)
 
@@ -198,7 +220,11 @@ class WebAPIConnection(object):
             headers["Signature"] = session.sessionid
         # Send the request.
         url = urljoin(self.store_url, path)
-        return requests.request(method, url, None, data, headers)
+        r = requests.request(method, url, None, data, headers)
+        # Convert any error codes that we know how to deal with.
+        if r.status_code in (401, 403):
+            raise AuthenticationError("invalid credentials")
+        return r
 
 
 class WebAPISession(object):

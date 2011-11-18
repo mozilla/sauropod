@@ -39,13 +39,14 @@ Credential-checking code for the minimal sauropod server.
 
 """
 
-import urllib2
 import json
 
 
 from zope.interface import implements, Interface
 
 from mozsvc import plugin
+
+from pysauropod.utils import verify_browserid, dummy_verify_browserid
 
 
 def includeme(config):
@@ -86,13 +87,14 @@ class DummyCredentials(object):
     implements(ICredentialsManager)
 
     def check_credentials(self, credentials):
-        appid = credentials.get("audience")
-        if appid is not None:
-            appid = appid.encode("utf8")
-        userid = credentials.get("assertion")
-        if userid is not None:
-            userid = userid.encode("utf8")
-        return (appid, userid)
+        assertion = credentials.get("assertion")
+        audience = credentials.get("audience")
+        if assertion is None or audience is None:
+            return (None, None)
+        userid, _ = dummy_verify_browserid(assertion, audience)
+        if userid is None:
+            return (None, None)
+        return (audience, userid)
 
 
 class BrowserIDCredentials(object):
@@ -109,36 +111,7 @@ class BrowserIDCredentials(object):
         audience = credentials.get("audience")
         if assertion is None or audience is None:
             return (None, None)
-        userid = verify_browserid(assertion, audience)
+        userid, _ = verify_browserid(assertion, audience)
         if userid is None:
             return (None, None)
         return (audience, userid)
-
-
-def verify_browserid(assertion, audience):
-    """Verify the given BrowserID assertion.
-
-    This function verifies the given BrowserID assertion.  It returns the
-    asserted email address is valie, None otherwise.  It currently just POSTs
-    to the browserid.org verifier service.
-
-    WARNING: this does no HTTPS certificate checking and so is completely open
-             to credential forgery.  I'll fix that eventually...
-
-    """
-    post_data = "assertion=%s&audience=%s" % (assertion, audience)
-    try:
-        resp = urllib2.urlopen("https://browserid.org/verify", post_data)
-        content_length = resp.info().get("Content-Length")
-        if content_length is None:
-            data = resp.read()
-        else:
-            data = resp.read(int(content_length))
-        data = json.loads(data)
-    except (ValueError, IOError):
-        return False
-    if data.get("status") != "okay":
-        return None
-    if data.get("audience") != audience:
-        return None
-    return data.get("email")
