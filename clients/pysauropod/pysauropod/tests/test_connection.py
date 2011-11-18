@@ -42,7 +42,7 @@ import wsgiref.simple_server
 from pyramid import testing
 from pyramid.httpexceptions import HTTPException
 
-from pysauropod.errors import ConflictError
+from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod import connect
 
 
@@ -105,8 +105,19 @@ class SauropodConnectionTests(object):
         credentials = {"audience": appid, "assertion": userid}
         return store.start_session(userid, credentials)
 
+    def test_authentication(self):
+        # Bad Assertion.
+        self.assertRaises(AuthenticationError,
+                          self._get_session, "APPID", "not-an-email-address")
+        # Bad Audience.
+        self.assertRaises(AuthenticationError,
+                          self._get_session, "", "test@example.com")
+        # These are OK.
+        s = self._get_session("APPID", "test@example.com")
+
+
     def test_basic_get_set_delete(self):
-        s = self._get_session("APPID", "tester")
+        s = self._get_session("APPID", "test@example.com")
         self.assertRaises(KeyError, s.get, "hello")
         item = s.set("hello", "world")
         self.assertEquals(item.key, "hello")
@@ -117,7 +128,7 @@ class SauropodConnectionTests(object):
         self.assertRaises(KeyError, s.delete, "hello")
 
     def test_conditional_update(self):
-        s = self._get_session("APPID", "tester")
+        s = self._get_session("APPID", "test@example.com")
         # For non-existent keys, the required etag is the empty string.
         self.assertRaises(ConflictError,
                           s.set, "hello", "world", if_match="badetag")
@@ -160,7 +171,9 @@ class TestSauropodDirectAPI(unittest.TestCase, SauropodConnectionTests):
             pass
 
     def _get_store(self, appid):
-        return connect("sqlite:////tmp/sauropod.db", appid, create_tables=True)
+        kwds = {"create_tables": True,
+                "verify_browserid": "pysauropod.utils.dummy_verify_browserid"}
+        return connect("sqlite:////tmp/sauropod.db", appid, **kwds)
 
 
 class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):

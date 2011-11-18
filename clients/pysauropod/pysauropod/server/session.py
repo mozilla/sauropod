@@ -124,6 +124,10 @@ class SignedSessionManager(object):
         timestamp = timestamp[2:]
         if timestamp.endswith("L"):
             timestamp = timestamp[:-1]
+        if isinstance(appid, unicode):
+            appid = appid.encode("ascii")
+        if isinstance(userid, unicode):
+            userid = userid.encode("ascii")
         data = b64encode("%s:%s:%s" % (os.urandom(4), appid, userid))
         data = "%s:%s" % (timestamp, data)
         # Append the signature.
