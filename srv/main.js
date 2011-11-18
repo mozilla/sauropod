@@ -63,10 +63,14 @@ function verifyBrowserID(assertion, audience, cb)
 function verifySignature(sig) {
     // TODO: Signature is simply the token for now
     // TODO: How does :userid map to user in signature?
+    // FIXME: 4 nested loops? This won't do at all.
     for (var audience in tokens) {
         for (var email in tokens[audience]) {
-            if (tokens[audience][email] == sig) {
-                return {user: email, bucket: audience};
+            var cTokens = tokens[audience][email];
+            for (var i = 0; i < cTokens.length; i++) {
+                if (cTokens[i] == sig) {
+                    return {user: email, bucket: audience};
+                }
             }
         }
     }
@@ -83,8 +87,13 @@ sauropod.post('/session/start', function(req, res) {
                 tokens[audience] = {};
             }
 
+            /* You can have more than one session per user */
+            if (!(email in tokens[audience])) {
+                tokens[audience][email] = [];
+            }
+
             var token = uuid();
-            tokens[audience][email] = token;
+            tokens[audience][email].push(token);
             res.send(token);
         } else {
             res.send(id.error, 401);
