@@ -40,6 +40,11 @@ var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
 var storage = require('./storage');
+var log4js = require('log4js');
+log4js.addAppender(log4js.consoleAppender());
+log4js.addAppender(log4js.fileAppender('logs/sauropod.log'), 'sauropod');
+
+var logger = log4js.getLogger('sauropod');
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
 sauropod.use(express.bodyParser());
@@ -77,20 +82,28 @@ function verifyBrowserID(assertion, audience, cb)
             try {
                 var data = JSON.parse(allData);
                 if (data.status != 'okay') {
+                    logger.warn('Invalid BrowserID login: (reason) ' + data.reason);
                     cb({'error': 'Invalid user'});
                 } else {
                     cb({'success': data.email});
                 }
             } catch (e) {
-                console.log('Exception ' + e);
+                logger.error('Exception ' + e);
                 cb({'error': 'Invalid user'});
             }
 
         });
     });
 
+    verify.connection.setTimeout(5000, function() {
+			logger.error('Timeout on the response from BrowserID');
+      cb({'error': 'BrowserID Timeout'});
+      verify.abort();
+    });
+
     verify.on('error', function(e) {
-        console.log('Could not make verification request ' + e.message);
+        cb({'error': 'BrowserID Verification Failure'});
+        logger.error('Could not make verification request ' + e.message);
     });
 
     verify.write(cert);
@@ -175,13 +188,13 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
                 }
                 else {
                     res.send("Error " + err, 500);
-		    // Log it
-		    console.log('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
-		}
+                    // Log it
+                    logger.error('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
+                }
             }
         });
     }
 });
 
-console.log('Serving on http://localhost:8000');
+logger.info('Serving on http://localhost:8001');
 sauropod.listen(8001);
