@@ -95,11 +95,13 @@ function verifyBrowserID(assertion, audience, cb)
         });
     });
 
+    /*
     verify.connection.setTimeout(5000, function() {
 			logger.error('Timeout on the response from BrowserID');
       cb({'error': 'BrowserID Timeout'});
       verify.abort();
     });
+    */
 
     verify.on('error', function(e) {
         cb({'error': 'BrowserID Verification Failure'});
