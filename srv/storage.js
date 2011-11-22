@@ -90,5 +90,12 @@ function get(user, audience, key, cb) {
     });
 }
 
+function ping(cb) {
+    db.getVersion(function(err, version) {
+        cb(err);
+    });
+}
+
 exports.put = put;
 exports.get = get;
+exports.ping = ping;
