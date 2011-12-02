@@ -39,9 +39,6 @@ Credential-checking code for the minimal sauropod server.
 
 """
 
-import json
-
-
 from zope.interface import implements, Interface
 
 from mozsvc import plugin

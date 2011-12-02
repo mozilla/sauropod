@@ -69,7 +69,7 @@ def verify_browserid(assertion, audience):
     """Verify the given BrowserID assertion.
 
     This function verifies the given BrowserID assertion.  If valid it
-    returns a tuple (email, result). giving the asserted email address and 
+    returns a tuple (email, result). giving the asserted email address and
     the JSON response from the verifier.  If invalid is returns a tuple
     (None, result) givig the JSON error data from the verifier.
 
@@ -120,4 +120,3 @@ def dummy_verify_browserid(assertion, audience):
     data["email"] = assertion
     data["audience"] = audience
     return assertion, data
-

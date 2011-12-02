@@ -114,7 +114,7 @@ class SauropodConnectionTests(object):
                           self._get_session, "", "test@example.com")
         # These are OK.
         s = self._get_session("APPID", "test@example.com")
-
+        self.assertEquals(s.userid, "test@example.com")
 
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "test@example.com")
