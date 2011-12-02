@@ -65,9 +65,14 @@ from zope.interface import implements
 
 from mozsvc.util import maybe_resolve_name
 
-from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod.interfaces import ISauropodConnection, ISauropodSession, Item
 from pysauropod.backends.sql import SQLBackend
+from pysauropod.errors import (Error,  # NOQA
+                               ConnectionError,
+                               ServerError,
+                               ServerBusyError,
+                               ConflictError,
+                               AuthenticationError)
 
 # The requests module has a bug that makes it unable to access urls
 # containing a quoted slash. Monkey-patch until fix is released.
@@ -198,7 +203,6 @@ class WebAPIConnection(object):
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
         r = self.request("/session/start", "POST", credentials)
-        r.raise_for_status()
         sessionid = r.content
         return WebAPISession(self, userid, sessionid, **kwds)
 
@@ -220,10 +224,27 @@ class WebAPIConnection(object):
             headers["Signature"] = session.sessionid
         # Send the request.
         url = urljoin(self.store_url, path)
-        r = requests.request(method, url, None, data, headers)
-        # Convert any error codes that we know how to deal with.
+        try:
+            r = requests.request(method, url, None, data, headers)
+        except requests.RequestException, e:
+            raise ConnectionError(*e.args)
+        # If that was an error, translate it into one of our internal types.
+        # 401 or 403 indicate that authentication failed.
         if r.status_code in (401, 403):
             raise AuthenticationError("invalid credentials")
+        # 412 indicates an etag conflict.
+        if r.status_code == 412:
+            raise ConflictError("if_match was not satisfied")
+        # 503 indicates the server is too busy.
+        if r.status_code == 503:
+            try:
+                retry_after = int(r.headers["Retry-After"])
+            except (KeyError, ValueError, TypeError):
+                retry_after = None
+            raise ServerBusyError(r.content, r.status_code, retry_after)
+        # All other failures just turn into a generic ServerError.
+        if r.status_code < 200 or r.status_code >= 300:
+            raise ServerError(r.content, r.status_code)
         return r
 
 
@@ -262,11 +283,12 @@ class WebAPISession(object):
     def getitem(self, key, userid=None, appid=None):
         """Get the item stored under the specified key."""
         path = self.keypath(key, userid, appid)
-        r = self.request(path, "GET")
-        if r.status_code == 404:
-            raise KeyError(key)
-        else:
-            r.raise_for_status()
+        try:
+            r = self.request(path, "GET")
+        except ServerError, e:
+            if e.status_code == 404:
+                raise KeyError(key)
+            raise
         value = json.loads(r.content)["value"]
         return Item(appid, userid, key, value, r.headers.get("ETag"))
 
@@ -284,10 +306,6 @@ class WebAPISession(object):
             else:
                 headers["If-Match"] = if_match
         r = self.request(path, "PUT", dict(value=value), headers)
-        if r.status_code == 412:
-            raise ConflictError(key)
-        else:
-            r.raise_for_status()
         return Item(appid, userid, key, value, r.headers.get("ETag"))
 
     def delete(self, key, userid=None, appid=None, if_match=None):
@@ -299,10 +317,9 @@ class WebAPISession(object):
                 headers["If-None-Match"] = "*"
             else:
                 headers["If-Match"] = if_match
-        r = self.request(path, "DELETE", headers=headers)
-        if r.status_code == 404:
-            raise KeyError(key)
-        elif r.status_code == 412:
-            raise ConflictError(key)
-        else:
-            r.raise_for_status()
+        try:
+            self.request(path, "DELETE", headers=headers)
+        except ServerError, e:
+            if e.status_code == 404:
+                raise KeyError(key)
+            raise
