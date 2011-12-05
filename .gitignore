@@ -19,3 +19,7 @@ man
 .channel
 srv/node_modules
 htmlcov
+*-bench.xml
+*-test.xml
+*-test.xml.*
+*-test.log
