@@ -198,5 +198,15 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
     }
 });
 
+sauropod.get('/__heartbeat__', function(req, res) {
+    storage.ping(function(err) {
+        if(!err) {
+            res.send("OK", 200);
+        } else {
+            res.send("ERROR: storage is not accessible", 500);
+        }
+    });
+});
+
 logger.info('Serving on http://localhost:8001');
 sauropod.listen(8001);
