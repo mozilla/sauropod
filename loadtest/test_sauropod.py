@@ -5,6 +5,8 @@ from urllib import quote as urlquote
 from urllib import unquote as urlunquote
 from urlparse import urljoin
 
+import vep
+
 from funkload.FunkLoadTestCase import FunkLoadTestCase
 from funkload.utils import Data
 
@@ -24,7 +26,8 @@ class SauropodTests(FunkLoadTestCase):
     def start_session(self, userid=None):
         if userid is None:
             userid = "user%d@moz.com" % random.randint(0, self.num_users - 1)
-        params = {"audience": self.audience, "assertion": self.userid}
+        assertion = vep.DummyVerifier.make_assertion(userid, self.audience)
+        params = {"audience": self.audience, "assertion": assertion}
         res = self.post(urljoin(self.root_url, "/session/start"),
                         params=params)
         self.assertEquals(res.code, 200)

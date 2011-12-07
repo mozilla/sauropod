@@ -56,10 +56,48 @@ sauropod.use(express.static(__dirname + '/'));
 
 var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
+
+//  A dummy routine that just parses BrowserID assertions without verifying.
+//  For use in testing scenarios..
+function dummyVerifyBrowserID(assertion, audience, cb) {
+    function base64urldecode(arg) {
+        var s = arg;
+        s = s.replace(/-/g, '+'); // 62nd char of encoding
+        s = s.replace(/_/g, '/'); // 63rd char of encoding
+        switch (s.length % 4) // Pad with trailing '='s
+        {
+            case 0: break; // No pad chars in this case
+            case 2: s += "=="; break; // Two pad chars
+            case 3: s += "="; break; // One pad char
+            default: throw new InputException("Illegal base64url string!");
+        }
+        var buf = new Buffer(s, "base64");
+        return buf.toString("ascii");
+    }
+    function parseJWT(arg) {
+        var data = arg.split(".");
+        var payload = JSON.parse(base64urldecode(data[1]));
+        return payload
+    }
+    try {
+        var bundle = JSON.parse(base64urldecode(assertion));
+        var cert = bundle["certificates"][bundle["certificates"].length - 1];
+        var assert = bundle["assertion"]
+        if (parseJWT(assert)["aud"] != audience) {
+            cb({'error': 'Invalid user'});
+        } else {
+            cb({'success': parseJWT(cert)["principal"]["email"]});
+        }
+    } catch (e) {
+        cb({'error': 'Invalid assertion'});
+    }
+}
+
+
+//  The real routine to verify BrowserID assertions.
+//  For use in production.
 function verifyBrowserID(assertion, audience, cb)
 {
-    // Uncomment this to stub out verification for testing purposes
-    //return cb({success: audience});
     var cert = 'assertion=' + encodeURIComponent(assertion) + '&audience=' + encodeURIComponent(audience);
 
     var options = {
