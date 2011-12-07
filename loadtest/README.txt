@@ -17,12 +17,12 @@ port 8001 for use by the tests::
 Confirm that your setup is working by running a single instance of the test
 suite::
 
-    fl-run-test test_simple.py
+    fl-run-test test_sauropod.py
 
 Then you can run the loadtest by doing::
 
-    fl-run-bench test_simple.py SimpleTest.test_write_and_read_keys
+    fl-run-bench test_sauropod.py SauropodTests.test_write_read_seq
  
 And generate some pretty graphs with::
 
-    fl-build-report --html --output-directory=html simple-bench.xml
+    fl-build-report --html --output-directory=html sauropod-bench.xml
