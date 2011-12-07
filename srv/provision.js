@@ -61,6 +61,9 @@ var newTable = hbase().getTable(tName);
 
 newTable.create(
 	'key', function(err, success) {
-		console.log('Table created: ' + (success ? 'yes' : 'no'));
+		console.log(
+      'Table created for host ' + args[0] +
+      ' (hashed to ' + tName + '): ' + (success ? 'yes' : 'no')
+    );
 	}
 );
