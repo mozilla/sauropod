@@ -23,8 +23,13 @@
 <body>
 	<h1>Sauropod Sandbox</h1>
 	<div id="login">
-        <p id="msg">Please login with BrowserID!</p>
+    <p id="msg">Please login with BrowserID!</p>
 		<a href="#" onclick="login();"><img id="button" src="https://browserid.org/i/sign_in_green.png"/></a>
+    <p>&nbsp;</p>
+    <p>Or mock the request (will only work if server is running in mock mode):</p>
+    <p>
+      User: <input type="text" id="mockUser"/><input type="submit" value="Mock" onclick="doMock();"/>
+    </p>
 	</div>
 	<div id="ops">
 		<div id="get">

@@ -43,24 +43,55 @@ var audience = "http://localhost:8001";
 
 function extractUser(assertion) {
 	function base64urldecode(arg) {
-        var s = arg;
-        s = s.replace(/-/g, '+'); // 62nd char of encoding
-        s = s.replace(/_/g, '/'); // 63rd char of encoding
-        switch (s.length % 4) // Pad with trailing '='s
-        {
-            case 0: break; // No pad chars in this case
-            case 2: s += "=="; break; // Two pad chars
-            case 3: s += "="; break; // One pad char
-            default: throw new InputException("Illegal base64url string!");
-        }
-        return window.atob(s); // Standard base64 decoder
+    var s = arg;
+    s = s.replace(/-/g, '+'); // 62nd char of encoding
+    s = s.replace(/_/g, '/'); // 63rd char of encoding
+    switch (s.length % 4) // Pad with trailing '='s
+    {
+      case 0: break; // No pad chars in this case
+      case 2: s += "=="; break; // Two pad chars
+      case 3: s += "="; break; // One pad char
+      default: throw new InputException("Illegal base64url string!");
     }
+    return window.atob(s); // Standard base64 decoder
+  }
 
-    var assert = JSON.parse(base64urldecode(assertion));
-    var jwt = assert["certificates"][0];
-    var data = jwt.split(".");
-    var payload = JSON.parse(base64urldecode(data[1]));
-    return payload["principal"]["email"];
+  var assert = JSON.parse(base64urldecode(assertion));
+  var jwt = assert["certificates"][0];
+  var data = jwt.split(".");
+  var payload = JSON.parse(base64urldecode(data[1]));
+  return payload["principal"]["email"];
+}
+
+function doMock() {
+
+  function base64urlencode(arg) {
+    var s = window.btoa(arg);  // Standard base64 encoder
+    s = s.replace(/\+/g, '-'); // Replace + with -
+    s = s.replace(/\//g, '_'); // Replace / with _
+    s = s.replace(/\=/g, '');  // Remove padding
+    return s;
+  }
+
+  var user = document.getElementById("mockUser").value;
+  var jwt = base64urlencode(JSON.stringify({
+    "principal": {
+      "email": user
+    }
+  }));
+  var jwtAud = base64urlencode(JSON.stringify({
+    "aud": audience
+  }));
+  var assertion = {
+    "assertion": "0." + jwtAud + ".0",
+    "certificates": [
+      "0." + jwt + ".0"   
+    ]
+  };
+
+  assertion = base64urlencode(JSON.stringify(assertion));
+  document.getElementById("login").style.display = "none";
+  setupSandbox(assertion);
 }
 
 function login() {

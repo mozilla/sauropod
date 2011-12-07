@@ -56,6 +56,13 @@ sauropod.use(express.static(__dirname + '/'));
 
 var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
+// Command line argument specifies if to run with production
+// browserID or mock verification
+var verifyFunc = verifyBrowserID;
+var args = process.argv.splice(2);
+if (args.length >= 1 && args[0] == "mock") {
+    verifyFunc = dummyVerifyBrowserID;
+}
 
 //  A dummy routine that just parses BrowserID assertions without verifying.
 //  For use in testing scenarios..
@@ -77,12 +84,12 @@ function dummyVerifyBrowserID(assertion, audience, cb) {
     function parseJWT(arg) {
         var data = arg.split(".");
         var payload = JSON.parse(base64urldecode(data[1]));
-        return payload
+        return payload;
     }
     try {
         var bundle = JSON.parse(base64urldecode(assertion));
         var cert = bundle["certificates"][bundle["certificates"].length - 1];
-        var assert = bundle["assertion"]
+        var assert = bundle["assertion"];
         if (parseJWT(assert)["aud"] != audience) {
             cb({'error': 'Invalid user'});
         } else {
@@ -96,8 +103,7 @@ function dummyVerifyBrowserID(assertion, audience, cb) {
 
 //  The real routine to verify BrowserID assertions.
 //  For use in production.
-function verifyBrowserID(assertion, audience, cb)
-{
+function verifyBrowserID(assertion, audience, cb) {
     var cert = 'assertion=' + encodeURIComponent(assertion) + '&audience=' + encodeURIComponent(audience);
 
     var options = {
@@ -170,7 +176,7 @@ function verifySignature(sig) {
 
 sauropod.post('/session/start', function(req, res) {
     var audience = req.body.audience;
-    verifyBrowserID(req.body.assertion, audience, function(id) {
+    verifyFunc(req.body.assertion, audience, function(id) {
         if ('success' in id) {
             var email = id['success'];
             if (!(audience in tokens)) {
