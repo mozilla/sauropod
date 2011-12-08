@@ -39,12 +39,12 @@
 var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
-var storage = require('./storage');
-var log4js = require('log4js');
-log4js.addAppender(log4js.consoleAppender());
-log4js.addAppender(log4js.fileAppender('logs/sauropod.log'), 'sauropod');
+var config = require('./configuration').getConfig(process.argv.splice(2)[0]);
+var logger = config.logger;
 
-var logger = log4js.getLogger('sauropod');
+console.log('Using the "' + config.storage.backend '" storage backend');
+var storage = require(config.storage.backend);
+
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
 sauropod.use(express.bodyParser());
@@ -253,4 +253,4 @@ sauropod.get('/__heartbeat__', function(req, res) {
 });
 
 logger.info('Serving on http://localhost:8001');
-sauropod.listen(8001);
+sauropod.listen(config.serve.listen);
