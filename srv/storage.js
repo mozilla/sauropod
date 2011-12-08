@@ -38,9 +38,10 @@
 
 var hbase = require('hbase');
 var crypto = require('crypto');
+const config = require('./configuration').getConfig();
 var db = hbase({
-    host: '127.0.0.1',
-    port: 8080
+    host: config.storage.host,
+    port: config.storage.port
 });
 
 db.getVersion(function(err, version) {
