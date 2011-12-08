@@ -105,6 +105,17 @@ function morph_err(err, audience) {
     return http_err;
 }
 
+function new_table(name, cfamilies, cb) {
+    var cfamily = new Array();
+    for (var fam in cfamilies) {
+	cfamily.push(new ttypes.ColumnDescriptor({name: cfamilies[fam]}));
+    }
+
+    client.createTable(name, cfamily, function(err) {
+	cb(err, (err == 'AlreadyExists' ? true : false));
+    });
+}
+
 function put(user, audience, key, value, cb) {
     var cell = new ttypes.Mutation({column: "key:" + key, 'value': value });
     client.mutateRow(hash(audience), hash(user), [cell], function(err, success) {
@@ -149,6 +160,8 @@ function ping(cb) {
 			   });
 }
 
+exports.hash = hash;
+exports.new_table = new_table;
 exports.put = put;
 exports.get = get;
 exports.ping = ping;
