@@ -39,6 +39,7 @@
 var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
+var connect = require('connect');
 var config = require('./configuration').getConfig(process.argv.splice(2)[0]);
 var logger = config.logger;
 
@@ -47,6 +48,7 @@ var storage = require(config.storage.backend);
 
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
+sauropod.use(connect.logger('short'));
 sauropod.use(express.bodyParser());
 sauropod.use(express.cookieParser());
 sauropod.use(express.session({secret: 'apatosaurus'}));
