@@ -143,18 +143,19 @@ function get(user, audience, key, cb) {
 /*
  * Make sure the table we use for healthchecks is up
  */
-client.createTable('__heartbeat__',
-		   [new ttypes.ColumnDescriptor({name: 'incr'})],
+var heart = config.thrift.heartbeat;
+client.createTable(heart.table,
+		   [new ttypes.ColumnDescriptor({name: heart.cfamily})],
 		   function(err, data) {
     if (err.name === 'AlreadyExists') {
 	return;
     } else if (err.name === 'IOError') {
-	console.log('Failed to create table "__heartbeat__": ' + err.message);
+	console.log('Failed to create table "' +heart.table+'": ' + err.message);
     }
 });
 
 function ping(cb) {
-    client.atomicIncrement('__heartbeat__', 'myrowname', 'incr:a', 1,
+    client.atomicIncrement(heart.table, heart.row, heart.column, 1,
 			   function(err, success) {
 			       cb(err);
 			   });
