@@ -26,16 +26,15 @@
         "url": "git://github.com/mozilla/sauropod.git"
      ],
      "main": "",
-     "directories": {
-     },
+     "directories": { },
      "dependencies": {
-        "express": "*",
-        "uuid": "*",
-        "hbase": "*",
+         "express": "*",
+         "node-uuid": "*",
+         "hbase": "*",
+         "thrift": "*"
      },
-     "devDependencies": {
-     },
+     "devDependencies": { },
      "engines": {
-        "node": ">=0.4.12"
+        "node": ">=0.6.1"
      }
 }
