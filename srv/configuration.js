@@ -16,7 +16,7 @@ try {
 	    //hosts: ['appsync-hbase-stage1', 'appsync-hbase-stage2'],
 	    host: 'localhost',
 	    port: 9090,
-	    backend: 'thrift',
+	    backend: './storage-thrift',
 	},
 	thrift: {
 	    heartbeat: {
@@ -36,7 +36,7 @@ var preview = {
 	//hosts: ['appsync-hbase-stage1', 'appsync-hbase-stage2'],
 	host: 'appsync-hbase-stage1',
 	port: 9090,
-	backend: 'thrift',
+	backend: './storage-thrift',
     },
     thrift: {
 	heartbeat: {
