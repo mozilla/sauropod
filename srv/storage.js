@@ -106,7 +106,7 @@ function get(user, audience, key, cb) {
 }
 
 function ping(cb) {
-    db.getVersion(function(err, version) {
+    db.getVersionCluster(function(err, version) {
         cb(err);
     });
 }
