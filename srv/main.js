@@ -36,14 +36,28 @@
 # ***** END LICENSE BLOCK *****
 */
 
+// Command line argument specifies if to run with production
+// browserID or mock verification
+var verifyFunc = verifyBrowserID;
+var conf = 'prod';
+var args = process.argv.splice(2);
+if (args.length >= 1) {
+    if (args[0] == "mock") {
+	verifyFunc = dummyVerifyBrowserID;
+	conf = args[1];
+    } else {
+	conf = args[0];
+    }
+}
+
 var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
 var connect = require('connect');
-var config = require('./configuration').getConfig(process.argv.splice(2)[0]);
+var config = require('./configuration').getConfig(conf);
 var logger = config.logger;
 
-console.log('Using the "' + config.storage.backend '" storage backend');
+console.log('Using the "' + config.storage.backend + '" storage backend');
 var storage = require(config.storage.backend);
 
 
@@ -58,13 +72,6 @@ sauropod.use(express.static(__dirname + '/'));
 
 var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
-// Command line argument specifies if to run with production
-// browserID or mock verification
-var verifyFunc = verifyBrowserID;
-var args = process.argv.splice(2);
-if (args.length >= 1 && args[0] == "mock") {
-    verifyFunc = dummyVerifyBrowserID;
-}
 
 //  A dummy routine that just parses BrowserID assertions without verifying.
 //  For use in testing scenarios..
