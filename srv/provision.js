@@ -41,29 +41,25 @@
  * we only setup a new hbase table for the given argument
  */
 var args = process.argv.splice(2);
+var config = require('./configuration').getConfig('preview');
+const storage = require(config.storage.backend);
 
 if (args.length != 1) {
 	console.log("Error: incorect argument");
 	process.exit(1);
 }
 
-function hash(value) {
-    // Use Skein insteaf of SHA-1?
-    var crypto = require("crypto");
-    var sha = crypto.createHash('sha1');
-    sha.update(value);
-    return sha.digest('hex');
-}
+var tName = storage.hash(args[0]);
 
-var hbase = require("hbase");
-var tName = hash(args[0]);
-var newTable = hbase().getTable(tName);
-
-newTable.create(
-	'key', function(err, success) {
-		console.log(
-      'Table created for host ' + args[0] +
-      ' (hashed to ' + tName + '): ' + (success ? 'yes' : 'no')
-    );
-	}
-);
+storage.new_table(tName, ['key'], function(err, exists) {
+    if (exists) {
+	console.log('Table for "' + args[0] + '"(hash="' + tName + '") already exists');
+	process.exit(0);
+    } else if (err) {
+	console.log('Unhandled error: ' + err.name + '/' + err.message);
+	process.exit(1);
+    }
+    console.log('Table created for host ' + args[0] +
+		' (hashed to ' + tName + ')');
+    process.exit(0);
+});
