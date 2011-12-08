@@ -68,6 +68,20 @@ function hash(value) {
  * https://groups.google.com/group/sauropod/browse_thread/thread/f4711de98ddabe3e
  */
 
+function new_table(name, cfamilies, cb) {
+    var table = db.getTable(name);
+    table.exists(function(err, exists) {
+	if (err || exists) {
+	    return cb(err, exists);
+	}
+    });
+    // node-hbase only seems to support a single column family
+    // for table creation
+    table.create(cfamilies[0], function(err, success) {
+	cb(err, false);
+    });
+}
+
 function put(user, audience, key, value, cb) {
     var row = db.getRow(hash(audience), hash(user));
     row.put("key:" + key, value, function(err, success) {
@@ -96,6 +110,8 @@ function ping(cb) {
     });
 }
 
+exports.hash = hash;
+exports.new_table = new_table;
 exports.put = put;
 exports.get = get;
 exports.ping = ping;
