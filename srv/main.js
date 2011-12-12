@@ -41,6 +41,7 @@ var uuid = require('node-uuid');
 var express = require('express');
 var storage = require('./storage');
 var log4js = require('log4js');
+var url = require('url');
 log4js.addAppender(log4js.consoleAppender());
 log4js.addAppender(log4js.fileAppender('logs/sauropod.log'), 'sauropod');
 
@@ -174,11 +175,39 @@ function verifySignature(sig) {
     return null;
 }
 
+//  Normalize an audience string.
+//  This ensures that the audience is in the canonical form:
+//
+//    protocol://host:optional-port
+//
+var STANDARD_PORTS = {
+  "http:": "80",
+  "https:": "443"
+}
+function normalizeAudience(audience) {
+   //  Note: url.parse() lowercases things by default, which is nice.
+   var aud = url.parse(audience);
+   //  Default to "https" as the protocol.
+   var result = aud.protocol || "https:";
+   //  If the protocol is missing, the hostname might be parsed as pathname.
+   var hostname = aud.hostname;
+   if (!hostname) {
+       hostname = aud.pathname.split("/")[0];
+   }
+   result += "//" + hostname;
+   //  Don't include the port number if it's standard.
+   if(aud.port && aud.port != STANDARD_PORTS[aud.protocol]) {
+       result += ":" + aud.port
+   }
+   return result;
+}
+
 sauropod.post('/session/start', function(req, res) {
     var audience = req.body.audience;
     verifyFunc(req.body.assertion, audience, function(id) {
         if ('success' in id) {
             var email = id['success'];
+            audience = normalizeAudience(audience);
             if (!(audience in tokens)) {
                 tokens[audience] = {};
             }
