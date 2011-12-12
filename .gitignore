@@ -17,6 +17,7 @@ test
 nosetests.xml
 man
 .channel
+srv/dev-config.js
 srv/node_modules
 htmlcov
 *-bench.xml

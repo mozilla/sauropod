@@ -36,18 +36,38 @@
 # ***** END LICENSE BLOCK *****
 */
 
+// Command line argument specifies if to run with production
+// browserID or mock verification
+var verifyFunc = verifyBrowserID;
+var conf = 'prod';
+var args = process.argv.splice(2);
+if (args.length >= 1) {
+    if (args[0] == "mock") {
+	verifyFunc = dummyVerifyBrowserID;
+	conf = args[1];
+    } else {
+	conf = args[0];
+    }
+}
+
 var https = require('https');
 var uuid = require('node-uuid');
 var express = require('express');
-var storage = require('./storage');
+
 var log4js = require('log4js');
 var url = require('url');
 log4js.addAppender(log4js.consoleAppender());
 log4js.addAppender(log4js.fileAppender('logs/sauropod.log'), 'sauropod');
 
-var logger = log4js.getLogger('sauropod');
+var connect = require('connect');
+var config = require('./configuration').getConfig(conf);
+var logger = config.logger;
+
+console.log('Using the "' + config.storage.backend + '" storage backend');
+var storage = require(config.storage.backend);
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
+sauropod.use(connect.logger('short'));
 sauropod.use(express.bodyParser());
 sauropod.use(express.cookieParser());
 sauropod.use(express.session({secret: 'apatosaurus'}));
@@ -57,13 +77,6 @@ sauropod.use(express.static(__dirname + '/'));
 
 var tokens = {} // TODO: Randomly generated uuid's, only in memory
 
-// Command line argument specifies if to run with production
-// browserID or mock verification
-var verifyFunc = verifyBrowserID;
-var args = process.argv.splice(2);
-if (args.length >= 1 && args[0] == "mock") {
-    verifyFunc = dummyVerifyBrowserID;
-}
 
 //  A dummy routine that just parses BrowserID assertions without verifying.
 //  For use in testing scenarios..
@@ -282,4 +295,4 @@ sauropod.get('/__heartbeat__', function(req, res) {
 });
 
 logger.info('Serving on http://localhost:8001');
-sauropod.listen(8001);
+sauropod.listen(config.serve.listen);

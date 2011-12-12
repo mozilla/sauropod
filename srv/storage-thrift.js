@@ -36,17 +36,17 @@
 # ***** END LICENSE BLOCK *****
 */
 
-var hbase = require('hbase');
-var crypto = require('crypto');
+const thrift = require('thrift');
+const hbase = require('./gen-nodejs/Hbase');
+const ttypes = require('./gen-nodejs/Hbase_types');
+const crypto = require('crypto');
 const config = require('./configuration').getConfig();
-var db = hbase({
-    host: config.storage.host,
-    port: config.storage.port
-});
 
-db.getVersion(function(err, version) {
-   console.log(version);
-});
+// Our client
+var conn = thrift.createConnection(config.storage.host, config.storage.port);
+var client = thrift.createClient(hbase, conn);
+
+const NoSuchColumnFamily = new RegExp(/NoSuchColumnFamilyException/);
 
 function hash(value) {
     // Use Skein insteaf of SHA-1?
@@ -69,46 +69,98 @@ function hash(value) {
  * https://groups.google.com/group/sauropod/browse_thread/thread/f4711de98ddabe3e
  */
 
-function new_table(name, cfamilies, cb) {
-    var table = db.getTable(name);
-    table.exists(function(err, exists) {
-	if (err || exists) {
-	    return cb(err, exists);
+function morph_err(err, audience) {
+    /*
+     * There are only three exceptions that the original HBase thrift server will raise:
+     *
+     * IOError  for any communication issues to the HBase cluster servers and as a general
+     *          fallback for generic errors
+     *
+     * IllegalArgument  illegal or invalid argument
+     *
+     * AlreadyExists  a table with that name already exists
+     */
+
+    var http_err = {code: 400, message: 'Bad Request'};
+    switch (err.name) {
+    case 'IOError':
+	if (err.message === audience) {
+	    // Table doesn't exist, app not provisioned
+	    http_err.code = 400;
+	    http_err.message = 'application not provisioned';
+	    // LOGME
+	} else if (NoSuchColumnFamily.test(err.message)) {
+	    http_err.code = 404;
+	    http_err.message = "no such column family";
+	    // LOGME
+	} else {
+	    http_err.code = 503;
+	    http_err.message = 'Failed to communicate with HBase';
+	    // LOGME
 	}
-    });
-    // node-hbase only seems to support a single column family
-    // for table creation
-    table.create(cfamilies[0], function(err, success) {
-	cb(err, false);
+	break;
+    case 'IllegalArgument':
+	http_err.message = 'invalid syntax: "'+err.message+'"';
+	break;
+    }
+
+    return http_err;
+}
+
+function new_table(name, cfamilies, cb) {
+    var cfamily = new Array();
+    for (var fam in cfamilies) {
+	cfamily.push(new ttypes.ColumnDescriptor({name: cfamilies[fam]}));
+    }
+
+    client.createTable(name, cfamily, function(err) {
+	cb(err, (err == 'AlreadyExists' ? true : false));
     });
 }
 
 function put(user, audience, key, value, cb) {
-    var row = db.getRow(hash(audience), hash(user));
-    row.put("key:" + key, value, function(err, success) {
-        cb(err);
+    var cell = new ttypes.Mutation({column: "key:" + key, 'value': value });
+    client.mutateRow(hash(audience), hash(user), [cell], function(err, success) {
+	if (err) {
+	    var http_err = morph_err(err, audience);
+	    return cb(http_err);
+	}
+	// All's well
+	cb();
     });
 }
 
 function get(user, audience, key, cb) {
-    var row = db.getRow(hash(audience), hash(user));
-    row.get("key:" + key, function(err, success) {
-        var data = {};
+    client.get(hash(audience), hash(user), "key:" + key, function(err, data) {
         if (err) {
-            cb(err, success);
+	    var http_err = morph_err(err, audience);
+	    return cb(err, success);
         } else {
             data.key = key;
-            data.value = success[0].$;
-            data.timestamp = success[0].timestamp;
             cb(err, data);
         }
     });
 }
 
+/*
+ * Make sure the table we use for healthchecks is up
+ */
+var heart = config.thrift.heartbeat;
+client.createTable(heart.table,
+		   [new ttypes.ColumnDescriptor({name: heart.cfamily})],
+		   function(err, data) {
+    if (err.name === 'AlreadyExists') {
+	return;
+    } else if (err.name === 'IOError') {
+	console.log('Failed to create table "' +heart.table+'": ' + err.message);
+    }
+});
+
 function ping(cb) {
-    db.getVersionCluster(function(err, version) {
-        cb(err);
-    });
+    client.atomicIncrement(heart.table, heart.row, heart.column, 1,
+			   function(err, success) {
+			       cb(err);
+			   });
 }
 
 exports.hash = hash;
