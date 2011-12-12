@@ -90,10 +90,12 @@ function morph_err(err, audience) {
 	    http_err.message = 'application not provisioned';
 	    // LOGME
 	} else if (NoSuchColumnFamily.test(err.message)) {
+	    http_err.code = 404;
 	    http_err.message = "no such column family";
 	    // LOGME
 	} else {
-	    http_err.message = 'Failed to communicate with backend';
+	    http_err.code = 503;
+	    http_err.message = 'Failed to communicate with HBase';
 	    // LOGME
 	}
 	break;
