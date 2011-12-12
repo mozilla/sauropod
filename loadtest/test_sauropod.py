@@ -69,7 +69,7 @@ class SauropodTests(FunkLoadTestCase):
         This test does a simple sequential write of a bunch of keys, then
         reads them all back in the same order.
         """
-        num_keys = int(self.conf_get("test_write_read_seq", "num_keys"))
+        num_keys = 20
         self.start_session()
         # Write out a bunch of keys.
         for i in range(num_keys):
@@ -78,3 +78,35 @@ class SauropodTests(FunkLoadTestCase):
         for i in range(num_keys):
             value = self.get_key("key%d" % (i,))
             self.assertEquals(value, "value%d" % (i,))
+
+    def test_contention_for_single_key(self):
+        """Test contention for a single key.
+
+        This test does a bunch of reads and writes of a single key, to
+        see how we go under hotly contested scenarios.
+        """
+        self.start_session("user1@moz.com")
+        for i in range(20):
+            self.set_key("hot-key", "we all want this key baby")
+            value = self.get_key("hot-key")
+            self.assertEquals(value, "we all want this key baby")
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    import subprocess
+    # Sanity-check the setup by running a single instance of the tests.
+    print "SANITY-CHECKING YOUR SETUP"
+    subprocess.check_call(["fl-run-test", __file__])
+    # Now we can run the full benchmark suite.
+    for methnm in dir(SauropodTests):
+        if not methnm.startswith("test_"):
+            continue
+        print "RUNNING THE BENCHMARK", methnm
+        subprocess.check_call(["fl-run-bench", __file__,
+                               "SauropodTests." + methnm])
+        print "GENERATING THE REPORT"
+        subprocess.check_call(["fl-build-report", "--html",
+                               "--output-directory=html",
+                               "sauropod-bench.xml"])
