@@ -46,7 +46,7 @@ on each others data or each others privacy.
 """
 
 __ver_major__ = 0
-__ver_minor__ = 1
+__ver_minor__ = 2
 __ver_patch__ = 0
 __ver_sub__ = ""
 __ver_tuple__ = (__ver_major__, __ver_minor__, __ver_patch__, __ver_sub__)
@@ -60,6 +60,8 @@ from urllib import unquote as urlunquote
 from urlparse import urlparse, urljoin
 
 import requests
+
+import vep
 
 from zope.interface import implements
 
@@ -121,10 +123,13 @@ class DirectConnection(object):
 
     implements(ISauropodConnection)
 
-    def __init__(self, backend, appid, verify_browserid=None):
-        if verify_browserid is None:
-            verify_browserid = "pysauropod.utils:verify_browserid"
-        self._verify_browserid = maybe_resolve_name(verify_browserid)
+    def __init__(self, backend, appid, verifier=None):
+        if verifier is None:
+            verifier = "vep:RemoteVerifier"
+        verifier = maybe_resolve_name(verifier)
+        if callable(verifier):
+            verifier = verifier()
+        self._verifier = verifier
         self.backend = backend
         self.appid = appid
 
@@ -134,8 +139,9 @@ class DirectConnection(object):
 
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
-        email, data = self._verify_browserid(**credentials)
-        if not email:
+        try:
+            email = self._verifier.verify(**credentials)["email"]
+        except (ValueError, vep.TrustError):
             raise AuthenticationError("invalid credentials")
         return DirectSession(self, userid, uuid.uuid4().hex, **kwds)
 
@@ -195,6 +201,7 @@ class WebAPIConnection(object):
     def __init__(self, store_url, appid):
         self.store_url = store_url
         self.appid = appid
+        self._reqpool = requests.session()
 
     def close(self):
         """Close down the connection."""
@@ -225,9 +232,12 @@ class WebAPIConnection(object):
         # Send the request.
         url = urljoin(self.store_url, path)
         try:
-            r = requests.request(method, url, None, data, headers)
+            r = self._reqpool.request(method, url, None, data, headers)
         except requests.RequestException, e:
             raise ConnectionError(*e.args)
+        # Greedily load the body content.
+        # This ensures the connection can be put back in the pool.
+        r.content
         # If that was an error, translate it into one of our internal types.
         # 401 or 403 indicate that authentication failed.
         if r.status_code in (401, 403):

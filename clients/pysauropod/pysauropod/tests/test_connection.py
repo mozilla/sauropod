@@ -37,6 +37,7 @@
 import os
 import unittest
 import threading
+import logging
 import wsgiref.simple_server
 
 from pyramid import testing
@@ -44,6 +45,19 @@ from pyramid.httpexceptions import HTTPException
 
 from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod import connect
+
+import vep
+
+
+class CaptureLoggingHandler(logging.Handler):
+    """Logging handler to capture output in memory."""
+
+    def __init__(self):
+        self.messages = []
+        logging.Handler.__init__(self)
+
+    def emit(self, record):
+        self.messages.append(record)
 
 
 class SilentWSGIRequestHandler(wsgiref.simple_server.WSGIRequestHandler):
@@ -102,19 +116,9 @@ class SauropodConnectionTests(object):
 
     def _get_session(self, appid, userid):
         store = self._get_store(appid)
-        credentials = {"audience": appid, "assertion": userid}
+        assertion = vep.DummyVerifier.make_assertion(userid, appid)
+        credentials = {"audience": appid, "assertion": assertion}
         return store.start_session(userid, credentials)
-
-    def test_authentication(self):
-        # Bad Assertion.
-        self.assertRaises(AuthenticationError,
-                          self._get_session, "APPID", "not-an-email-address")
-        # Bad Audience.
-        self.assertRaises(AuthenticationError,
-                          self._get_session, "", "test@example.com")
-        # These are OK.
-        s = self._get_session("APPID", "test@example.com")
-        self.assertEquals(s.userid, "test@example.com")
 
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "test@example.com")
@@ -172,7 +176,7 @@ class TestSauropodDirectAPI(unittest.TestCase, SauropodConnectionTests):
 
     def _get_store(self, appid):
         kwds = {"create_tables": True,
-                "verify_browserid": "pysauropod.utils.dummy_verify_browserid"}
+                "verifier": "vep:DummyVerifier"}
         return connect("sqlite:////tmp/sauropod.db", appid, **kwds)
 
 
@@ -192,8 +196,9 @@ class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
            "sauropod.storage.sqluri": "sqlite:////tmp/sauropod.db",
            "sauropod.storage.create_tables": True,
            # Stub out the credentials-checking for testing purposes.
+           "sauropod.credentials.verifier": "vep:DummyVerifier",
            "sauropod.credentials.backend":
-               "pysauropod.server.credentials:DummyCredentials"}
+               "pysauropod.server.credentials:BrowserIDCredentials"}
         self.config.add_settings(settings)
 
         # Load up pysauropod.server.
@@ -222,3 +227,25 @@ class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
 
     def _get_store(self, appid):
         return connect(self.server.base_url, appid)
+
+    def test_connection_pooling(self):
+        # Capture logging messages from requests module.
+        handler = CaptureLoggingHandler()
+        logging.getLogger("requests").addHandler(handler)
+        logging.getLogger("requests").setLevel(logging.DEBUG)
+        try:
+            s = self._get_session("APPID", "test@example.com")
+            # Make a bunch of requests, so connections get created.
+            for _ in xrange(10):
+                s.set("hello", "world")
+                s.get("hello")
+                s.delete("hello")
+            # The default pool size is 10.  That should have created
+            # precisely 10 new connections.
+            count = 0
+            for r in handler.messages:
+                if "new HTTP connection" in r.getMessage():
+                    count += 1
+            self.assertEquals(count, 10)
+        finally:
+            logging.getLogger("requests").removeHandler(handler)
