@@ -195,6 +195,7 @@ class WebAPIConnection(object):
     def __init__(self, store_url, appid):
         self.store_url = store_url
         self.appid = appid
+        self._reqpool = requests.session()
 
     def close(self):
         """Close down the connection."""
@@ -225,9 +226,12 @@ class WebAPIConnection(object):
         # Send the request.
         url = urljoin(self.store_url, path)
         try:
-            r = requests.request(method, url, None, data, headers)
+            r = self._reqpool.request(method, url, None, data, headers)
         except requests.RequestException, e:
             raise ConnectionError(*e.args)
+        # Greedily load the body content.
+        # This ensures the connection can be put back in the pool.
+        r.content
         # If that was an error, translate it into one of our internal types.
         # 401 or 403 indicate that authentication failed.
         if r.status_code in (401, 403):

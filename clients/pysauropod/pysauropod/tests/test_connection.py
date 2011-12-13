@@ -37,6 +37,7 @@
 import os
 import unittest
 import threading
+import logging
 import wsgiref.simple_server
 
 from pyramid import testing
@@ -44,6 +45,17 @@ from pyramid.httpexceptions import HTTPException
 
 from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod import connect
+
+
+class CaptureLoggingHandler(logging.Handler):
+    """Logging handler to capture output in memory."""
+
+    def __init__(self):
+        self.messages = []
+        logging.Handler.__init__(self)
+
+    def emit(self, record):
+        self.messages.append(record)
 
 
 class SilentWSGIRequestHandler(wsgiref.simple_server.WSGIRequestHandler):
@@ -222,3 +234,25 @@ class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
 
     def _get_store(self, appid):
         return connect(self.server.base_url, appid)
+
+    def test_connection_pooling(self):
+        # Capture logging messages from requests module.
+        handler = CaptureLoggingHandler()
+        logging.getLogger("requests").addHandler(handler)
+        logging.getLogger("requests").setLevel(logging.DEBUG)
+        try:
+            s = self._get_session("APPID", "test@example.com")
+            # Make a bunch of requests, so connections get created.
+            for _ in xrange(10):
+                s.set("hello", "world")
+                s.get("hello")
+                s.delete("hello")
+            # The default pool size is 10.  That should have created
+            # precisely 10 new connections.
+            count = 0
+            for r in handler.messages:
+                if "new HTTP connection" in r.getMessage():
+                    count += 1
+            self.assertEquals(count, 10)
+        finally:
+            logging.getLogger("requests").removeHandler(handler)
