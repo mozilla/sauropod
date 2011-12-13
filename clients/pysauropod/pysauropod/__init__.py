@@ -121,10 +121,13 @@ class DirectConnection(object):
 
     implements(ISauropodConnection)
 
-    def __init__(self, backend, appid, verify_browserid=None):
-        if verify_browserid is None:
-            verify_browserid = "pysauropod.utils:verify_browserid"
-        self._verify_browserid = maybe_resolve_name(verify_browserid)
+    def __init__(self, backend, appid, verifier=None):
+        if verifier is None:
+            verifier = "vep:RemoteVerifier"
+        verifier = maybe_resolve_name(verifier)
+        if callable(verifier):
+            verifier = verifier()
+        self._verifier = verifier
         self.backend = backend
         self.appid = appid
 
@@ -134,8 +137,9 @@ class DirectConnection(object):
 
     def start_session(self, userid, credentials, **kwds):
         """Start a data access session."""
-        email, data = self._verify_browserid(**credentials)
-        if not email:
+        try:
+            email = self._verifier.verify(**credentials)["email"]
+        except (ValueError, vep.TrustError):
             raise AuthenticationError("invalid credentials")
         return DirectSession(self, userid, uuid.uuid4().hex, **kwds)
 

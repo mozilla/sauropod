@@ -42,8 +42,9 @@ Credential-checking code for the minimal sauropod server.
 from zope.interface import implements, Interface
 
 from mozsvc import plugin
+from mozsvc.util import maybe_resolve_name
 
-from pysauropod.utils import verify_browserid, dummy_verify_browserid
+import vep
 
 
 def includeme(config):
@@ -56,9 +57,9 @@ def includeme(config):
     """
     settings = config.get_settings()
     if "sauropod.credentials.backend" not in settings:
-#        default_backend = "pysauropod.server.credentials.BrowserIDCredentials"
-        default_backend = "pysauropod.server.credentials.DummyCredentials"
+        default_backend = "pysauropod.server.credentials.BrowserIDCredentials"
         settings["sauropod.credentials.backend"] = default_backend
+        settings["sauropod.credentials.verifier"] = "vep:DummyVerifier"
     plugin.load_and_register("sauropod.credentials", config)
 
 
@@ -74,26 +75,6 @@ class ICredentialsManager(Interface):
         """
 
 
-class DummyCredentials(object):
-    """Credentials-checking that just accepts any old thing.
-
-    This class implements the ICredentialsManager interface for testhing
-    purposes.  It accepts appid and userid in the credentials and will
-    happily just return them a valid.
-    """
-    implements(ICredentialsManager)
-
-    def check_credentials(self, credentials):
-        assertion = credentials.get("assertion")
-        audience = credentials.get("audience")
-        if assertion is None or audience is None:
-            return (None, None)
-        userid, _ = dummy_verify_browserid(assertion, audience)
-        if userid is None:
-            return (None, None)
-        return (audience, userid)
-
-
 class BrowserIDCredentials(object):
     """Credentials-checking based on BrowserID.
 
@@ -103,12 +84,21 @@ class BrowserIDCredentials(object):
     """
     implements(ICredentialsManager)
 
+    def __init__(self, verifier=None):
+        if verifier is None:
+            verifier = "vep:RemoteVerifier"
+        verifier = maybe_resolve_name(verifier)
+        if callable(verifier):
+            verifier = verifier()
+        self._verifier = verifier
+
     def check_credentials(self, credentials):
         assertion = credentials.get("assertion")
         audience = credentials.get("audience")
         if assertion is None or audience is None:
             return (None, None)
-        userid, _ = verify_browserid(assertion, audience)
-        if userid is None:
+        try:
+            email = self._verifier.verify(assertion, audience)["email"]
+        except (ValueError, vep.TrustError):
             return (None, None)
-        return (audience, userid)
+        return (audience, email)

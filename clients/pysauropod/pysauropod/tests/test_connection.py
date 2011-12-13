@@ -46,6 +46,8 @@ from pyramid.httpexceptions import HTTPException
 from pysauropod.errors import ConflictError, AuthenticationError
 from pysauropod import connect
 
+import vep
+
 
 class CaptureLoggingHandler(logging.Handler):
     """Logging handler to capture output in memory."""
@@ -114,19 +116,9 @@ class SauropodConnectionTests(object):
 
     def _get_session(self, appid, userid):
         store = self._get_store(appid)
-        credentials = {"audience": appid, "assertion": userid}
+        assertion = vep.DummyVerifier.make_assertion(userid, appid)
+        credentials = {"audience": appid, "assertion": assertion}
         return store.start_session(userid, credentials)
-
-    def test_authentication(self):
-        # Bad Assertion.
-        self.assertRaises(AuthenticationError,
-                          self._get_session, "APPID", "not-an-email-address")
-        # Bad Audience.
-        self.assertRaises(AuthenticationError,
-                          self._get_session, "", "test@example.com")
-        # These are OK.
-        s = self._get_session("APPID", "test@example.com")
-        self.assertEquals(s.userid, "test@example.com")
 
     def test_basic_get_set_delete(self):
         s = self._get_session("APPID", "test@example.com")
@@ -184,7 +176,7 @@ class TestSauropodDirectAPI(unittest.TestCase, SauropodConnectionTests):
 
     def _get_store(self, appid):
         kwds = {"create_tables": True,
-                "verify_browserid": "pysauropod.utils.dummy_verify_browserid"}
+                "verifier": "vep:DummyVerifier"}
         return connect("sqlite:////tmp/sauropod.db", appid, **kwds)
 
 
@@ -204,8 +196,9 @@ class TestSauropodWebAPI(unittest.TestCase, SauropodConnectionTests):
            "sauropod.storage.sqluri": "sqlite:////tmp/sauropod.db",
            "sauropod.storage.create_tables": True,
            # Stub out the credentials-checking for testing purposes.
+           "sauropod.credentials.verifier": "vep:DummyVerifier",
            "sauropod.credentials.backend":
-               "pysauropod.server.credentials:DummyCredentials"}
+               "pysauropod.server.credentials:BrowserIDCredentials"}
         self.config.add_settings(settings)
 
         # Load up pysauropod.server.

@@ -11,7 +11,7 @@ with open(os.path.join(here, 'README.rst')) as f:
 with open(os.path.join(here, 'CHANGES.txt')) as f:
     CHANGES = f.read()
 
-requires = ["pyramid", "cornice", "mozsvc", "requests"]
+requires = ["pyramid", "cornice", "mozsvc", "requests", "PyVEP"]
 
 
 setup(name='pysauropod',
