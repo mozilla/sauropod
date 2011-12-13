@@ -59,18 +59,22 @@ var table = {
 var config = undefined;
 var current = undefined;
 
+// This function will ignore any subsequent calls to set the config to
+// a different configuration.
 exports.getConfig = function(which) {
-    if (!which) {
-	which = 'dev';
-	console.log('Defaulting to dev config');
-    }
-    if (config === undefined || which != current) {
-	current = which;
-	config = table[which];
-	if (config === undefined) {
-	    console.log('Heyo!');
+    if (config === undefined) {
+	if (!which) {
+	    which = 'dev';
+	    console.log('Defaulting to dev config');
 	}
-	config.logger = log4js.getLogger('sauropod');
+	if (which != current) {
+	    current = which;
+	    config = table[which];
+	    if (config === undefined) {
+		console.log('Heyo!');
+	    }
+	    config.logger = log4js.getLogger('sauropod');
+	}
     }
     return config;
 };
