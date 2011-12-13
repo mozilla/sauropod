@@ -41,13 +41,7 @@ const hbase = require('./gen-nodejs/Hbase');
 const ttypes = require('./gen-nodejs/Hbase_types');
 const crypto = require('crypto');
 const config = require('./configuration').getConfig();
-const pool = require('generic-pool');
-
-// Our client
-var conn = thrift.createConnection(config.storage.host, config.storage.port,
-				   config.storage.timeout > 0 \
-				   ? config.storage.timeout : 1000);
-var client = thrift.createClient(hbase, conn);
+const genpool = require('generic-pool');
 
 const NoSuchColumnFamily = new RegExp(/NoSuchColumnFamilyException/);
 
@@ -110,7 +104,16 @@ function mogrify(err, audience) {
     return http_err;
 }
 
+/*
+ * new_table doesn't use the connection pool since it's only ever called by the
+ * stand along provisioning script
+ */
 function new_table(name, cfamilies, cb) {
+    // Our client
+    var timeout = config.storage.timeout > 0 ? config.storage.timeout : 1000;
+    var conn = thrift.createConnection(next_host(), config.storage.port, timeout);
+    var client = thrift.createClient(hbase, conn);
+
     var cfamily = new Array();
     for (var fam in cfamilies) {
 	cfamily.push(new ttypes.ColumnDescriptor({name: cfamilies[fam]}));
@@ -122,50 +125,90 @@ function new_table(name, cfamilies, cb) {
 }
 
 function put(user, audience, key, value, cb) {
-    var cell = new ttypes.Mutation({column: "key:" + key, 'value': value });
-    client.mutateRow(hash(audience), hash(user), [cell], function(err, success) {
-	if (err) {
-	    var http_err = mogrify(err, audience);
-	    return cb(http_err);
-	}
-	// All's well
-	cb();
+    pool.acquire(function(error, conn) {
+        var cell = new ttypes.Mutation({column: "key:" + key, 'value': value });
+        conn.client.mutateRow(hash(audience), hash(user), [cell], function(err, success) {
+            pool.release(conn);
+	    if (err) {
+	        var http_err = mogrify(err, audience);
+	        return cb(http_err);
+	    }
+	    // All's well
+	    cb();
+        });
     });
 }
 
 function get(user, audience, key, cb) {
-    client.get(hash(audience), hash(user), "key:" + key, function(err, data) {
-        if (err) {
-	    var http_err = mogrify(err, audience);
-	    return cb(err, success);
-        } else {
-            var data2 = data.shift() || { value: undefined, timestamp: -1 };
-            data2.key = key;
-            cb(err, data2);
-        }
+    pool.acquire(function(error, conn) {
+        conn.client.get(hash(audience), hash(user), "key:" + key, function(err, data) {
+            pool.release(conn);
+            if (err) {
+	        var http_err = mogrify(err, audience);
+	        return cb(err, success);
+            } else {
+                var data2 = data.shift() || { value: undefined, timestamp: -1 };
+                data2.key = key;
+                cb(err, data2);
+            }
+        });
     });
 }
+
+function ping(cb) {
+    pool.acquire(function(error, conn) {
+        conn.client.atomicIncrement(heart.table, heart.row, heart.column, 1,
+			            function(err, success) {
+                                        pool.release(conn);
+			                cb(err);
+			            });
+    });
+}
+
+var host_idx = 0;
+function next_host() {
+    if (host_idx >= config.storage.hosts.length) {
+        host_idx = 0;
+    }
+    var host = config.storage.hosts[host_idx];
+    host_idx++;
+    return host;
+}
+
+var pool = genpool.Pool({
+    name: 'hbase-thrift',
+    create:  function(callback) {
+        var timeout = config.storage.timeout > 0 ? config.storage.timeout : 1000;
+        var conn = thrift.createConnection(next_host(), config.storage.port, timeout);
+        var client = thrift.createClient(hbase, conn);
+
+        // You can access the client from the connection but can't access the
+        // connection from the client.  Wtf?
+        callback(null, conn)
+    },
+    destroy: function(conn) { conn.end(); },
+    max: config.thrift.pool.max,
+    idleTimeoutMillis: config.thrift.pool.idle_timeout,
+    reapIntervalMillis: config.thrift.pool.reap_interval,
+    log: config.thrift.pool.log
+});
 
 /*
  * Make sure the table we use for healthchecks is up
  */
 var heart = config.thrift.heartbeat;
-client.createTable(heart.table,
-		   [new ttypes.ColumnDescriptor({name: heart.cfamily})],
-		   function(err, data) {
-    if (err.name === 'AlreadyExists') {
-	return;
-    } else if (err.name === 'IOError') {
-	console.log('Failed to create table "' +heart.table+'": ' + err.message);
-    }
+pool.acquire(function(error, conn) {
+    conn.client.createTable(heart.table,
+		            [new ttypes.ColumnDescriptor({name: heart.cfamily})],
+		            function(err, data) {
+                                pool.release(conn);
+                                if (err.name === 'AlreadyExists') {
+	                            return;
+                                } else if (err.name === 'IOError') {
+	                            console.log('Failed to create table "' +heart.table+'": ' + err.message);
+                                }
+                            });
 });
-
-function ping(cb) {
-    client.atomicIncrement(heart.table, heart.row, heart.column, 1,
-			   function(err, success) {
-			       cb(err);
-			   });
-}
 
 exports.hash = hash;
 exports.new_table = new_table;

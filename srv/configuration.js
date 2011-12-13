@@ -26,6 +26,12 @@ try {
 		row: os.hostname(),
 		column: 'incr:a'
 	    },
+	    pool: {
+		max: 10,
+		log: true,
+		idle_timeout: 30 * 1000, // milliseconds
+		reap_interval: 60 * 1000, //milliseconds
+	    },
 	},
 	logger: undefined,
     };
@@ -46,6 +52,12 @@ var preview = {
 	    cfamily: 'incr',
 	    row: os.hostname(),
 	    column: 'incr:a'
+	},
+	pool: {
+	    max: 10,
+	    log: false,
+	    idle_timeout: 30 * 1000, // milliseconds
+	    reap_interval: 60 * 1000, //milliseconds
 	},
     },
     logger: undefined,
