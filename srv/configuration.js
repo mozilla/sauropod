@@ -17,6 +17,7 @@ try {
 	    host: 'localhost',
 	    port: 9090,
 	    backend: './storage-thrift',
+	    timeout: 2000, // milliseconds
 	},
 	thrift: {
 	    heartbeat: {
@@ -37,6 +38,7 @@ var preview = {
 	host: 'appsync-hbase-stage1',
 	port: 9090,
 	backend: './storage-thrift',
+	timeout: 2000, // milliseconds
     },
     thrift: {
 	heartbeat: {

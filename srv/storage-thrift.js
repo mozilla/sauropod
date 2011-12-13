@@ -43,7 +43,9 @@ const crypto = require('crypto');
 const config = require('./configuration').getConfig();
 
 // Our client
-var conn = thrift.createConnection(config.storage.host, config.storage.port);
+var conn = thrift.createConnection(config.storage.host, config.storage.port,
+				   config.storage.timeout > 0 \
+				   ? config.storage.timeout : 1000);
 var client = thrift.createClient(hbase, conn);
 
 const NoSuchColumnFamily = new RegExp(/NoSuchColumnFamilyException/);
