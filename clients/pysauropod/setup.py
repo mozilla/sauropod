@@ -15,7 +15,7 @@ requires = ["pyramid", "cornice", "mozsvc", "requests", "PyVEP"]
 
 
 setup(name='pysauropod',
-      version='0.1.0',
+      version='0.2.0',
       description='Python client library for Project Sauropod',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[
