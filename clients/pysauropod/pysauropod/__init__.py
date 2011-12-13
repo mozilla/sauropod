@@ -61,6 +61,8 @@ from urlparse import urlparse, urljoin
 
 import requests
 
+import vep
+
 from zope.interface import implements
 
 from mozsvc.util import maybe_resolve_name
