@@ -36,22 +36,14 @@
 # ***** END LICENSE BLOCK *****
 */
 
-// Command line argument specifies if to run with production
-// browserID or mock verification
-var verifyFunc = verifyBrowserID;
+// Command line argument specifies the configuration to load.
 var conf = 'prod';
 var args = process.argv.splice(2);
 if (args.length >= 1) {
-    if (args[0] == "mock") {
-	verifyFunc = dummyVerifyBrowserID;
-	conf = args[1];
-    } else {
-	conf = args[0];
-    }
+    conf = args[0];
 }
 
 var https = require('https');
-var uuid = require('node-uuid');
 var express = require('express');
 
 var log4js = require('log4js');
@@ -65,6 +57,7 @@ var logger = config.logger;
 
 console.log('Using the "' + config.storage.backend + '" storage backend');
 var storage = require(config.storage.backend);
+var authn = require("./authn");
 
 var sauropod = express.createServer(); // TODO: Transition to HTTPS server
 sauropod.use(connect.logger('short'));
@@ -75,166 +68,12 @@ sauropod.use(express.session({secret: 'apatosaurus'}));
 // For testing only
 sauropod.use(express.static(__dirname + '/'));
 
-var tokens = {} // TODO: Randomly generated uuid's, only in memory
-
-
-//  A dummy routine that just parses BrowserID assertions without verifying.
-//  For use in testing scenarios..
-function dummyVerifyBrowserID(assertion, audience, cb) {
-    function base64urldecode(arg) {
-        var s = arg;
-        s = s.replace(/-/g, '+'); // 62nd char of encoding
-        s = s.replace(/_/g, '/'); // 63rd char of encoding
-        switch (s.length % 4) // Pad with trailing '='s
-        {
-            case 0: break; // No pad chars in this case
-            case 2: s += "=="; break; // Two pad chars
-            case 3: s += "="; break; // One pad char
-            default: throw new InputException("Illegal base64url string!");
-        }
-        var buf = new Buffer(s, "base64");
-        return buf.toString("ascii");
-    }
-    function parseJWT(arg) {
-        var data = arg.split(".");
-        var payload = JSON.parse(base64urldecode(data[1]));
-        return payload;
-    }
-    try {
-        var bundle = JSON.parse(base64urldecode(assertion));
-        var cert = bundle["certificates"][bundle["certificates"].length - 1];
-        var assert = bundle["assertion"];
-        if (parseJWT(assert)["aud"] != audience) {
-            cb({'error': 'Invalid user'});
-        } else {
-            cb({'success': parseJWT(cert)["principal"]["email"]});
-        }
-    } catch (e) {
-        cb({'error': 'Invalid assertion'});
-    }
-}
-
-
-//  The real routine to verify BrowserID assertions.
-//  For use in production.
-function verifyBrowserID(assertion, audience, cb) {
-    var cert = 'assertion=' + encodeURIComponent(assertion) + '&audience=' + encodeURIComponent(audience);
-
-    var options = {
-        host: 'browserid.org',
-        path: '/verify',
-        method: 'POST',
-        headers: {
-            'content-type': 'application/x-www-form-urlencoded',
-            'content-length': '' + cert.length
-        }
-    };
-
-    var verify = https.request(options, function(response) {
-        var allData = '';
-        response.setEncoding('utf8');
-        response.on('data', function(chunk) {
-            allData += chunk;
-        });
-        response.on('end', function() {
-            try {
-                var data = JSON.parse(allData);
-                if (data.status != 'okay') {
-                    logger.warn('Invalid BrowserID login: (reason) ' + data.reason);
-                    cb({'error': 'Invalid user'});
-                } else {
-                    cb({'success': data.email});
-                }
-            } catch (e) {
-                logger.error('Exception ' + e);
-                cb({'error': 'Invalid user'});
-            }
-
-        });
-    });
-
-    /*
-    verify.connection.setTimeout(5000, function() {
-			logger.error('Timeout on the response from BrowserID');
-      cb({'error': 'BrowserID Timeout'});
-      verify.abort();
-    });
-    */
-
-    verify.on('error', function(e) {
-        cb({'error': 'BrowserID Verification Failure'});
-        logger.error('Could not make verification request ' + e.message);
-    });
-
-    verify.write(cert);
-    verify.end();
-}
-
-function verifySignature(sig) {
-    // TODO: Signature is simply the token for now
-    // TODO: How does :userid map to user in signature?
-    // FIXME: 4 nested loops? This won't do at all.
-    for (var audience in tokens) {
-        for (var email in tokens[audience]) {
-            var cTokens = tokens[audience][email];
-            for (var i = 0; i < cTokens.length; i++) {
-                if (cTokens[i] == sig) {
-                    return {user: email, bucket: audience};
-                }
-            }
-        }
-    }
-
-    return null;
-}
-
-//  Normalize an audience string.
-//  This ensures that the audience is in the canonical form:
-//
-//    protocol://host:optional-port
-//
-var STANDARD_PORTS = {
-  "http:": "80",
-  "https:": "443"
-}
-function normalizeAudience(audience) {
-   //  Note: url.parse() lowercases things by default, which is nice.
-   var aud = url.parse(audience);
-   //  Default to "https" as the protocol.
-   var result = aud.protocol || "https:";
-   //  If the protocol is missing, the hostname might be parsed as pathname.
-   var hostname = aud.hostname;
-   if (!hostname) {
-       hostname = aud.pathname.split("/")[0];
-   }
-   result += "//" + hostname;
-   //  Don't include the port number if it's standard.
-   if(aud.port && aud.port != STANDARD_PORTS[aud.protocol]) {
-       result += ":" + aud.port
-   }
-   return result;
-}
-
 sauropod.post('/session/start', function(req, res) {
-    var audience = req.body.audience;
-    verifyFunc(req.body.assertion, audience, function(id) {
-        if ('success' in id) {
-            var email = id['success'];
-            audience = normalizeAudience(audience);
-            if (!(audience in tokens)) {
-                tokens[audience] = {};
-            }
-
-            /* You can have more than one session per user */
-            if (!(email in tokens[audience])) {
-                tokens[audience][email] = [];
-            }
-
-            var token = uuid();
-            tokens[audience][email].push(token);
-            res.send(token);
+    authn.startSession(req.body, function(err, token) {
+        if (err) {
+            res.send(err, 401);
         } else {
-            res.send(id.error, 401);
+            res.send(token);
         }
     });
 });
@@ -242,46 +81,60 @@ sauropod.post('/session/start', function(req, res) {
 sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
     var key = req.params.key;
     var sig = req.header('Signature');
-    var verify = verifySignature(sig);
-
-    if (!verify) {
-        res.send("Invalid Signature", 401);
-    } else {
-        storage.put(verify["user"], verify["bucket"], key, req.body.value, function(err) {
-            if (!err) {
-                res.send("OK", 200);
+    authn.verify(sig, function(err, data) {
+        if (err) {
+            res.send("Invalid Signature", 401);
+        } else {
+            var user = data["user"];
+            var bucket = data["bucket"];
+            if (req.params.appid != bucket || req.params.userid != user) {
+                res.send("Permission Denied", 403);
             } else {
-                res.send("Error " + err, 500);
+                storage.put(user, bucket, key, req.body.value, function(err) {
+                    if (err) {
+                        res.send("Error " + err, 500);
+                    } else {
+                        res.send("OK", 200);
+                    }
+                });
             }
-        });
-    }
+        }
+    });
 });
 
 sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
     var key = req.params.key;
     var sig = req.header('Signature');
-    var verify = verifySignature(sig);
-
-    if (!verify) {
-        res.send("Invalid Signature", 401);
-    } else {
-        storage.get(verify["user"], verify["bucket"], key, function(err, data) {
-            if (!err) {
-                data.user = verify["user"];
-                data.bucket = verify["bucket"];
-                res.send(JSON.stringify(data), 200);
+    authn.verify(sig, function(err, session) {
+        if (err) {
+            res.send("Invalid Signature", 401);
+        } else {
+            var user = session["user"];
+            var bucket = session["bucket"];
+            if (req.params.appid != bucket || req.params.userid != user) {
+                res.send("Permission Denied", 403);
             } else {
-                if (404 == err.code ) {
-                    res.send('Not found', 404);
-                }
-                else {
-                    res.send("Error " + err, 500);
-                    // Log it
-                    logger.error('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
-                }
+                storage.get(user, bucket, key, function(err, data) {
+                    if (err) {
+                        if (404 == err.code ) {
+                            res.send('Not found', 404);
+                        } else {
+                            res.send("Error " + err, 500);
+                            logger.error('storage.get failure "' + err +
+                                         '" for ' + user + ' / ' + bucket + 
+                                         ' / ' + key + ': ' +
+                                         JSON.stringify(err));
+                        }
+                    } else {
+                        console.log(data);
+                        data.user = user;
+                        data.bucket = bucket;
+                        res.send(JSON.stringify(data), 200);
+                    }
+                });
             }
-        });
-    }
+        }
+    });
 });
 
 sauropod.get('/__heartbeat__', function(req, res) {
