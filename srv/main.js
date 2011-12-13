@@ -251,7 +251,8 @@ sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
             if (!err) {
                 res.send("OK", 200);
             } else {
-                res.send("Error " + err, 500);
+                res.send(err.message, err.code);
+		logger.error('put failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
             }
         });
     }
@@ -271,14 +272,9 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
                 data.bucket = verify["bucket"];
                 res.send(JSON.stringify(data), 200);
             } else {
-                if (404 == err.code ) {
-                    res.send('Not found', 404);
-                }
-                else {
-                    res.send("Error " + err, 500);
-                    // Log it
-                    logger.error('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
-                }
+                res.send(err.message, err.code);
+                // Log it
+                logger.error('get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
             }
         });
     }
@@ -289,7 +285,7 @@ sauropod.get('/__heartbeat__', function(req, res) {
         if(!err) {
             res.send("OK", 200);
         } else {
-            res.send("ERROR: storage is not accessible", 500);
+            res.send(err.message, err.code);
         }
     });
 });
