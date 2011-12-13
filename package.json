@@ -31,7 +31,8 @@
          "express": "*",
          "node-uuid": "*",
          "hbase": "*",
-         "thrift": "*"
+         "thrift": "*",
+	 "connect": "*"
      },
      "devDependencies": { },
      "engines": {
