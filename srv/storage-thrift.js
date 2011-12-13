@@ -41,6 +41,7 @@ const hbase = require('./gen-nodejs/Hbase');
 const ttypes = require('./gen-nodejs/Hbase_types');
 const crypto = require('crypto');
 const config = require('./configuration').getConfig();
+const pool = require('generic-pool');
 
 // Our client
 var conn = thrift.createConnection(config.storage.host, config.storage.port,
@@ -71,7 +72,7 @@ function hash(value) {
  * https://groups.google.com/group/sauropod/browse_thread/thread/f4711de98ddabe3e
  */
 
-function morph_err(err, audience) {
+function mogrify(err, audience) {
     /*
      * There are only three exceptions that the original HBase thrift server will raise:
      *
@@ -124,7 +125,7 @@ function put(user, audience, key, value, cb) {
     var cell = new ttypes.Mutation({column: "key:" + key, 'value': value });
     client.mutateRow(hash(audience), hash(user), [cell], function(err, success) {
 	if (err) {
-	    var http_err = morph_err(err, audience);
+	    var http_err = mogrify(err, audience);
 	    return cb(http_err);
 	}
 	// All's well
@@ -135,7 +136,7 @@ function put(user, audience, key, value, cb) {
 function get(user, audience, key, cb) {
     client.get(hash(audience), hash(user), "key:" + key, function(err, data) {
         if (err) {
-	    var http_err = morph_err(err, audience);
+	    var http_err = mogrify(err, audience);
 	    return cb(err, success);
         } else {
             var data2 = data.shift() || { value: undefined, timestamp: -1 };
