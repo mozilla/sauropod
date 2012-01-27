@@ -56,9 +56,15 @@ function extractUser(assertion) {
     return window.atob(s); // Standard base64 decoder
   }
 
-  var assert = JSON.parse(base64urldecode(assertion));
-  var jwt = assert["certificates"][0];
-  var data = jwt.split(".");
+  if(assertion.indexOf("~") != -1) {
+      var bundle = assertion.split("~");
+      var cert = bundle[bundle.length - 2];
+  } else {
+      var bundle = JSON.parse(base64urldecode(assertion));
+      var certs = bundle["certificates"];
+      var cert = certs[certs.length - 1];
+  }
+  var data = cert.split(".");
   var payload = JSON.parse(base64urldecode(data[1]));
   return payload["principal"]["email"];
 }
