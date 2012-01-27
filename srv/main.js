@@ -101,9 +101,16 @@ function dummyVerifyBrowserID(assertion, audience, cb) {
         return payload;
     }
     try {
-        var bundle = JSON.parse(base64urldecode(assertion));
-        var cert = bundle["certificates"][bundle["certificates"].length - 1];
-        var assert = bundle["assertion"];
+        if(assertion.indexOf("~") != -1) {
+            var bundle = assertion.split("~");
+            var cert = bundle[bundle.length - 2];
+            var assert = bundle[bundle.length - 1];
+        } else {
+            var bundle = JSON.parse(base64urldecode(assertion));
+            var certs = bundle["certificates"];
+            var cert = certs[certs.length - 1];
+            var assert = bundle["assertion"];
+        }
         if (parseJWT(assert)["aud"] != audience) {
             cb({'error': 'Invalid user'});
         } else {
