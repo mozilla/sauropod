@@ -85,8 +85,12 @@ function deep_extend() {
 // These are basically the default dev configuration.
 // 
 var defaults = {
+    secret_key: "apatosaurus",
     serve: {
         listen: 8001
+    },
+    authn: {
+        mock: false
     },
     storage: {
         host: 'localhost',
