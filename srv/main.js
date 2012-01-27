@@ -60,8 +60,10 @@ log4js.addAppender(log4js.consoleAppender());
 log4js.addAppender(log4js.fileAppender('logs/sauropod.log'), 'sauropod');
 
 var connect = require('connect');
+console.log('Using the "' + conf + '" config');
 var config = require('./configuration').getConfig(conf);
 var logger = config.logger;
+logger.info('Using the "' + conf + '" config');
 
 console.log('Using the "' + config.storage.backend + '" storage backend');
 var storage = require(config.storage.backend);
@@ -258,7 +260,8 @@ sauropod.put('/app/:appid/users/:userid/keys/:key', function(req, res) {
             if (!err) {
                 res.send("OK", 200);
             } else {
-                res.send("Error " + err, 500);
+                //res.send("Error " + err, 500);
+                res.send(err.message, err.code);
             }
         });
     }
@@ -278,6 +281,7 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
                 data.bucket = verify["bucket"];
                 res.send(JSON.stringify(data), 200);
             } else {
+                /*
                 if (404 == err.code ) {
                     res.send('Not found', 404);
                 }
@@ -286,6 +290,9 @@ sauropod.get('/app/:appid/users/:userid/keys/:key', function(req, res) {
                     // Log it
                     logger.error('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
                 }
+                */
+                res.send(err.message, err.code);
+                logger.error('storage.get failure "' + err + '" for ' + key + ': ' + JSON.stringify(err));
             }
         });
     }
@@ -296,7 +303,8 @@ sauropod.get('/__heartbeat__', function(req, res) {
         if(!err) {
             res.send("OK", 200);
         } else {
-            res.send("ERROR: storage is not accessible", 500);
+            //res.send("ERROR: storage is not accessible", 500);
+            res.send(err.message, err.code);
         }
     });
 });

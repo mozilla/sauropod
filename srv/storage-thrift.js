@@ -43,6 +43,7 @@ const crypto = require('crypto');
 const config = require('./configuration').getConfig();
 
 // Our client
+config.logger.info("Connecting to thrift server: " + config.storage.host+':'+config.storage.port);
 var conn = thrift.createConnection(config.storage.host, config.storage.port);
 var client = thrift.createClient(hbase, conn);
 
@@ -136,8 +137,9 @@ function get(user, audience, key, cb) {
 	    var http_err = morph_err(err, audience);
 	    return cb(err, success);
         } else {
-            data.key = key;
-            cb(err, data);
+            var data2 = data.shift() || { value: undefined, timestamp: -1 };
+            data2.key = key;
+            cb(err, data2);
         }
     });
 }
